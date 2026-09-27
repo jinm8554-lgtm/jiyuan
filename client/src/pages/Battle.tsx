@@ -283,9 +283,9 @@ export default function Battle() {
           </Link>
           {state && !state.finished ? (
             <>
-              <Button data-testid="battle-auto-resolve" size="sm" variant="outline" className="border-[color:var(--aether-500)]/50 text-[color:var(--aether-300)]" onClick={() => auto.mutate({ battleId: battleId! })} disabled={auto.isPending || !battleId}>
-                <Play size={13} className="mr-1" />
-                自动推演
+              <Button data-testid="battle-auto-resolve" size="sm" className="bg-[color:var(--aether-500)] px-4 font-semibold text-[color:var(--ink-950)] shadow-[0_0_16px_color-mix(in_srgb,var(--aether-500)_35%,transparent)] hover:bg-[color:var(--aether-400)]" onClick={() => auto.mutate({ battleId: battleId! })} disabled={auto.isPending || !battleId}>
+                <Play size={14} className="mr-1.5" />
+                战斗
               </Button>
               <Button size="sm" variant="outline" className="border-[color:var(--blood)]/50 text-[color:var(--blood)]" onClick={() => flee.mutate({ battleId: battleId! })} disabled={flee.isPending || !battleId}>
                 <Flag size={13} className="mr-1" />

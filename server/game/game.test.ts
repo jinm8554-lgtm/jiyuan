@@ -418,6 +418,24 @@ describe("战斗引擎", () => {
     expect(rewards.items.length).toBeGreaterThan(0);
   });
 
+  it("单个我方角色倒下不会直接判负，全部倒下才失败", () => {
+    const state = startBattle([makeAlly({ id: "ally_1" }), makeAlly({ id: "ally_2" }), makeEnemy()], {
+      nodeKey: "t",
+      regionKey: "r",
+      seed: 8,
+    });
+    const first = state.units.find((unit) => unit.id === "ally_1")!;
+    const second = state.units.find((unit) => unit.id === "ally_2")!;
+    first.alive = false;
+    first.hp = 0;
+    expect(checkBattleEnd(state, [])).toBe(false);
+    expect(state.finished).toBe(false);
+    second.alive = false;
+    second.hp = 0;
+    expect(checkBattleEnd(state, [])).toBe(true);
+    expect(state.result).toBe("lost");
+  });
+
   it("战斗状态可序列化并在恢复后继续（服务器权威）", () => {
     const state = startBattle([makeAlly(), makeEnemy()], { nodeKey: "t", regionKey: "r", seed: 55 });
     const serialized = JSON.parse(JSON.stringify(state));

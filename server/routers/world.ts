@@ -104,7 +104,8 @@ export const worldRouter = router({
             requiredClears: node.requiredClears,
             clearCount: row?.clearCount ?? 0,
             status,
-            unlocked: status !== "locked" || nodeCheck.unlocked,
+            // 只有已持久化的节点状态才能出征；解锁计算结果仅用于展示原因，避免灰色节点被误判为可用。
+            unlocked: status !== "locked",
             lockReason: status === "locked" ? nodeCheck.reason : null,
             mapX: node.mapX,
             mapY: node.mapY,
