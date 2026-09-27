@@ -75,7 +75,7 @@ export default function CharacterDetail() {
     onSuccess: async () => {
       toast.success("装备已更新");
       setEquipSlot(null);
-      await Promise.all([utils.character.detail.invalidate({ charKey }), utils.keep.home.invalidate()]);
+      await Promise.all([utils.character.detail.invalidate({ charKey }), utils.character.roster.invalidate(), utils.keep.home.invalidate()]);
     },
     onError: (error) => toast.error("装备失败", { description: error.message }),
   });
@@ -382,7 +382,7 @@ export default function CharacterDetail() {
                           {data.owned ? (
                             <div className="mt-2 flex gap-1.5">
                               <Button size="sm" variant="outline" className="h-7 flex-1 border-[color:var(--ink-500)]/70 text-[0.64rem] text-[color:var(--parchment-dim)]" onClick={() => setEquipSlot(slot.slot)}>更换</Button>
-                              <Button size="sm" variant="outline" className="h-7 border-[color:var(--blood)]/50 text-[0.64rem] text-[color:var(--blood)]" onClick={() => equip.mutate({ charKey, playerEquipId: null, slot: slot.slot as "weapon" })}>卸下</Button>
+                              <Button size="sm" variant="outline" className="h-7 border-[color:var(--blood)]/50 text-[0.64rem] text-[color:var(--blood)]" onClick={() => equip.mutate({ charKey, playerEquipId: null, slot: slot.slot })}>卸下</Button>
                             </div>
                           ) : null}
                         </>

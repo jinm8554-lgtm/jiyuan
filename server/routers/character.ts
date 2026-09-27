@@ -138,6 +138,29 @@ export const characterRouter = router({
     const ownedEquipment = await db.select().from(playerEquipments).where(eq(playerEquipments.profileId, profile.id));
 
     const slots = ["weapon", "offhand", "helmet", "armor", "boots", "accessory"] as const;
+    // Older unequip requests cleared playerCharacters.equipped but left the
+    // equipment row marked as worn. Treat the character slots as authoritative
+    // so those orphaned items return to the inventory on the next detail read.
+    const claimedEquipmentIds = new Set<number>();
+    const equipmentById = new Map(ownedEquipment.map((item) => [item.id, item]));
+    for (const character of owned) {
+      for (const slot of slots) {
+        const id = character.equipped?.[slot];
+        const item = typeof id === "number" ? equipmentById.get(id) : undefined;
+        if (item && EQUIPMENT_SEEDS.find((config) => config.equipKey === item.equipKey)?.slot === slot) {
+          claimedEquipmentIds.add(id);
+        }
+      }
+    }
+    for (const item of ownedEquipment) {
+      if (item.equippedBy && !claimedEquipmentIds.has(item.id)) {
+        await db.update(playerEquipments)
+          .set({ equippedBy: null, equippedSlot: null })
+          .where(and(eq(playerEquipments.id, item.id), eq(playerEquipments.profileId, profile.id), eq(playerEquipments.equippedBy, item.equippedBy)));
+        item.equippedBy = null;
+        item.equippedSlot = null;
+      }
+    }
     const equippedView = slots.map((slot) => {
       const equippedId = entry?.equipped?.[slot];
       const row = equipmentRows.find((item) => item.id === equippedId) ?? ownedEquipment.find((item) => item.id === equippedId);
@@ -157,9 +180,28 @@ export const characterRouter = router({
       };
     });
 
+    // Repair legacy records where the character JSON and equipment ownership flags diverged.
+    if (entry) {
+      const validEquipped: Record<string, number> = {};
+      for (const slot of slots) {
+        const equippedId = entry.equipped?.[slot];
+        const row = equippedId ? ownedEquipment.find((item) => item.id === equippedId) : undefined;
+        const config = row ? EQUIPMENT_SEEDS.find((item) => item.equipKey === row.equipKey) : undefined;
+        if (row && config?.slot === slot) {
+          validEquipped[slot] = row.id;
+          if (row.equippedBy !== entry.playerCharId || row.equippedSlot !== slot) {
+            await db.update(playerEquipments).set({ equippedBy: entry.playerCharId, equippedSlot: slot }).where(and(eq(playerEquipments.id, row.id), eq(playerEquipments.profileId, profile.id)));
+          }
+        }
+      }
+      if (JSON.stringify(validEquipped) !== JSON.stringify(entry.equipped ?? {})) {
+        await db.update(playerCharacters).set({ equipped: validEquipped }).where(eq(playerCharacters.id, entry.playerCharId));
+      }
+    }
+
     // 装备库（可替换）
     const inventory = ownedEquipment
-      .filter((row) => !row.equippedBy)
+      .filter((row) => !claimedEquipmentIds.has(row.id))
       .map((row) => {
         const equipConfig = EQUIPMENT_SEEDS.find((item) => item.equipKey === row.equipKey);
         if (!equipConfig) return null;
@@ -422,9 +464,12 @@ export const characterRouter = router({
       if (input.playerEquipId === null) {
         const slot = input.slot;
         if (!slot) throw new TRPCError({ code: "BAD_REQUEST", message: "缺少装备槽" });
+        const previousId = equipped[slot];
         delete equipped[slot];
         const { playerEquipments: table } = await import("../../drizzle/schema");
-        await db.update(table).set({ equippedBy: null, equippedSlot: null }).where(and(eq(table.profileId, profile.id), eq(table.id, Number(equipped[slot] ?? 0))));
+        if (previousId) {
+          await db.update(table).set({ equippedBy: null, equippedSlot: null }).where(and(eq(table.profileId, profile.id), eq(table.id, previousId), eq(table.equippedBy, row.id), eq(table.equippedSlot, slot)));
+        }
       } else {
         const { playerEquipments: table } = await import("../../drizzle/schema");
         const [equipRow] = await db
@@ -433,6 +478,7 @@ export const characterRouter = router({
           .where(and(eq(table.id, input.playerEquipId), eq(table.profileId, profile.id)))
           .limit(1);
         if (!equipRow) throw new TRPCError({ code: "NOT_FOUND", message: "装备不存在" });
+        if (equipRow.equippedBy && equipRow.equippedBy !== row.id) throw new TRPCError({ code: "BAD_REQUEST", message: "该装备已被其他角色穿戴" });
 
         const equipConfig = EQUIPMENT_SEEDS.find((item) => item.equipKey === equipRow.equipKey);
         if (!equipConfig) throw new TRPCError({ code: "NOT_FOUND", message: "装备配置缺失" });

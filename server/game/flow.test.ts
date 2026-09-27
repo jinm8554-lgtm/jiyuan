@@ -13,7 +13,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { appRouter } from "../routers";
 import { getDb } from "../db";
 import type { TrpcContext } from "../_core/context";
-import { apiTokens, battles, characters, gameProfiles, nodeStates, playerCharacters, profileBuildings, regionStates, teams, users } from "../../drizzle/schema";
+import { apiTokens, battles, characters, gameProfiles, nodeStates, playerCharacters, playerEquipments, profileBuildings, regionStates, teams, users } from "../../drizzle/schema";
 
 const TEST_OPEN_ID = "vitest-flow-user";
 const ADMIN_OPEN_ID = "vitest-flow-admin";
@@ -235,6 +235,41 @@ flowDescribe("核心流程：从建档到征服", () => {
     expect(after.level).toBeGreaterThan(before.level);
     expect(after.stats.hp).toBeGreaterThan(before.stats.hp);
     expect(after.power).toBeGreaterThan(before.power);
+  }, 90_000);
+
+  it("6b. 装备：卸下后装备回到库存且可再次穿戴", async () => {
+    const roster = await player.character.roster({ filter: "owned" });
+    const target = roster.list.find((item) => item.owned && item.playerCharId)!;
+    const detail = await player.character.detail({ charKey: target.charKey });
+    const inventoryItem = detail.inventory[0];
+    expect(inventoryItem?.playerEquipId).toBeTruthy();
+
+    await player.character.equip({ charKey: target.charKey, playerEquipId: inventoryItem!.playerEquipId });
+    const equipped = await player.character.detail({ charKey: target.charKey });
+    const slot = equipped.equipped.find((item) => item.playerEquipId === inventoryItem!.playerEquipId);
+    expect(slot?.playerEquipId).toBe(inventoryItem!.playerEquipId);
+
+    await player.character.equip({ charKey: target.charKey, playerEquipId: null, slot: slot!.slot });
+    const afterUnequip = await player.character.detail({ charKey: target.charKey });
+    expect(afterUnequip.equipped.find((item) => item.slot === slot!.slot)?.playerEquipId).toBeNull();
+    expect(afterUnequip.inventory.some((item) => item.playerEquipId === inventoryItem!.playerEquipId)).toBe(true);
+
+    await player.character.equip({ charKey: target.charKey, playerEquipId: inventoryItem!.playerEquipId });
+    const afterEquip = await player.character.detail({ charKey: target.charKey });
+    expect(afterEquip.equipped.find((item) => item.slot === slot!.slot)?.playerEquipId).toBe(inventoryItem!.playerEquipId);
+
+    // Simulate the old bug: the character slot was cleared while the item
+    // remained marked as equipped. Opening details must recover the item.
+    await db.update(playerCharacters).set({ equipped: {} }).where(eq(playerCharacters.id, target.playerCharId!));
+    const recovered = await player.character.detail({ charKey: target.charKey });
+    expect(recovered.inventory.some((item) => item.playerEquipId === inventoryItem!.playerEquipId)).toBe(true);
+    const [recoveredRow] = await db.select().from(playerEquipments).where(eq(playerEquipments.id, inventoryItem!.playerEquipId));
+    expect(recoveredRow.equippedBy).toBeNull();
+    expect(recoveredRow.equippedSlot).toBeNull();
+
+    await player.character.equip({ charKey: target.charKey, playerEquipId: inventoryItem!.playerEquipId });
+    const reequipped = await player.character.detail({ charKey: target.charKey });
+    expect(reequipped.equipped.find((item) => item.slot === slot!.slot)?.playerEquipId).toBe(inventoryItem!.playerEquipId);
   }, 90_000);
 
   it("7. 世界探索：节点信息完整 → 开战 → 半自动结算 → 节点进度落库", async () => {

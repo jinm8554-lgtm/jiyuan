@@ -3,18 +3,34 @@
  * 用途：无需登录即可阅读；同时作为游戏内「世界百科」入口
  */
 import { Link } from "wouter";
-import { ArrowLeft, BookOpen, Globe2, Scroll, Sparkles } from "lucide-react";
+import { useState } from "react";
+import { toast } from "sonner";
+import { ArrowLeft, BookOpen, CheckCircle2, Globe2, Scroll, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { trpc } from "@/lib/trpc";
 import { PageSection } from "@/components/game/GameShell";
 import { FalconCrest } from "@/components/game/GameIcons";
 import { AllAgesNote, ErrorState, GoldRule, Panel, SectionTitle, SkeletonState, Tag } from "@/components/game/ui";
+import { useAuth } from "@/_core/hooks/useAuth";
 
 const WORLD_ART = "/aetherfall-assets/worldmap_72ac880b.jpg";
 
 export default function Chronicle() {
+  const { isAuthenticated } = useAuth();
   const lore = trpc.meta.lore.useQuery();
   const chapters = trpc.meta.chapters.useQuery();
+  const utils = trpc.useUtils();
+  const questHistory = trpc.keep.questHistory.useQuery(undefined, { enabled: isAuthenticated, retry: false });
+  const [claimingQuest, setClaimingQuest] = useState<string | null>(null);
+  const claimQuest = trpc.keep.claimQuest.useMutation({
+    onMutate: (input) => setClaimingQuest(input.questKey),
+    onSuccess: async () => {
+      toast.success("奖励已入库");
+      await Promise.all([questHistory.refetch(), utils.keep.home.invalidate(), utils.keep.quests.invalidate(), utils.keep.resources.invalidate()]);
+    },
+    onError: (error) => toast.error("领取失败", { description: error.message }),
+    onSettled: () => setClaimingQuest(null),
+  });
 
   if (lore.isLoading) {
     return (
@@ -92,6 +108,62 @@ export default function Chronicle() {
               })}
             </ol>
           </Panel>
+
+          {isAuthenticated ? (
+            <Panel>
+              <SectionTitle eyebrow="Quest Archive" title="任务记录" />
+              <GoldRule />
+              {questHistory.isLoading ? (
+                <SkeletonState rows={2} />
+              ) : questHistory.isError ? (
+                <ErrorState message={questHistory.error?.message ?? "任务记录读取失败"} onRetry={() => questHistory.refetch()} />
+              ) : (questHistory.data ?? []).length === 0 ? (
+                <p className="text-xs text-[color:var(--parchment-muted)]">完成的任务会在这里留下记录。</p>
+              ) : (
+                <div className="space-y-2">
+                  {(questHistory.data ?? []).map((quest) => {
+                    const rewards = Object.entries(quest.rewards ?? {}).filter(([key, value]) => key !== "items" && Number(value) > 0);
+                    const items = Array.isArray(quest.rewards?.items) ? quest.rewards.items : [];
+                    return (
+                      <div key={quest.questKey} className="rounded-sm border border-[color:var(--ink-500)]/60 bg-[color:var(--ink-800)]/45 p-2.5">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="text-sm text-[color:var(--parchment)]">{quest.name}</span>
+                              <Tag tone={quest.questType === "main" ? "gold" : quest.questType === "side" ? "aether" : "neutral"}>
+                                {quest.questType === "main" ? "主线" : quest.questType === "side" ? "支线" : "日常"}
+                              </Tag>
+                              {quest.status === "claimed" ? <Tag tone="neutral">已领取</Tag> : <Tag tone="gold">待领取</Tag>}
+                            </div>
+                            <div className="mt-0.5 text-[0.66rem] text-[color:var(--parchment-muted)]">
+                              第 {quest.chapter} 章 · 完成于 {quest.completedAt ? new Date(quest.completedAt).toLocaleString("zh-CN") : "未知时间"}
+                            </div>
+                          </div>
+                          {quest.status === "completed" ? (
+                            <Button size="sm" className="btn-gold h-7 border-transparent px-2 text-[0.68rem] text-[color:var(--ink-950)]" onClick={() => claimQuest.mutate({ questKey: quest.questKey })} disabled={claimingQuest === quest.questKey}>
+                              {claimingQuest === quest.questKey ? "领取中…" : "领取"}
+                            </Button>
+                          ) : (
+                            <CheckCircle2 size={15} className="mt-0.5 shrink-0 text-[color:var(--verdant)]" />
+                          )}
+                        </div>
+                        {quest.description ? <p className="mt-1 text-xs leading-relaxed text-[color:var(--parchment-muted)]">{quest.description}</p> : null}
+                        {rewards.length > 0 || items.length > 0 ? (
+                          <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[0.68rem] text-[color:var(--gold-300)]">
+                            {rewards.map(([key, value]) => <span key={key}>{({ gold: "金币", food: "粮食", wood: "木料", iron: "铁矿", aether: "星辉", renown: "声望" } as Record<string, string>)[key] ?? key} +{Number(value).toLocaleString("zh-CN")}</span>)}
+                            {items.map((item, index) => {
+                              const entry = item as { equipKey?: string; quantity?: number };
+                              return <span key={`${entry.equipKey ?? "item"}-${index}`}>装备 {entry.equipKey ?? "未知"} ×{entry.quantity ?? 1}</span>;
+                            })}
+                          </div>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </Panel>
+          ) : null}
         </div>
 
         <div className="space-y-4">

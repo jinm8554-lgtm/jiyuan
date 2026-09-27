@@ -384,7 +384,7 @@ export default function Keep() {
             ) : (
               <div className="space-y-2">
                 {(quests.data ?? [])
-                  .filter((quest) => quest.status !== "locked")
+                  .filter((quest) => quest.status === "active" || quest.status === "completed")
                   .slice(0, 6)
                   .map((quest) => {
                     const done = quest.objectives.filter((objective) => objective.done).length;

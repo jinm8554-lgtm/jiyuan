@@ -6,7 +6,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useParams } from "wouter";
 import { toast } from "sonner";
-import { ArrowLeft, Flag, Heart, Play, Shield, Sparkles, Swords, Wand2, Wind } from "lucide-react";
+import { ArrowLeft, Flag, Heart, Package, Play, Shield, Sparkles, Swords, Wand2, Wind } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
@@ -79,9 +79,34 @@ type EventView = {
 };
 
 type FinishedBattleView = {
+  settlement?: {
+    rewards?: BattleRewardsView;
+    droppedItems?: Array<{ equipKey: string; name: string }>;
+  } | null;
   reserveAvailable?: boolean;
   reserveTeam?: { name: string; memberCount: number } | null;
 };
+
+type BattleRewardsView = {
+  gold?: number;
+  food?: number;
+  wood?: number;
+  iron?: number;
+  aether?: number;
+  renown?: number;
+  exp?: number;
+  droppedItems?: Array<{ equipKey: string; name: string }>;
+};
+
+const REWARD_LABELS = [
+  { key: "gold", label: "金币" },
+  { key: "food", label: "食物" },
+  { key: "wood", label: "木材" },
+  { key: "iron", label: "铁" },
+  { key: "aether", label: "星辉" },
+  { key: "renown", label: "声望" },
+  { key: "exp", label: "角色经验" },
+] as const;
 
 const BATTLE_ART = "/aetherfall-assets/battlefield_ad38f8db.jpg";
 
@@ -103,6 +128,8 @@ export default function Battle() {
   const [battleId, setBattleId] = useState<number | null>(null);
   const [state, setState] = useState<StateView | null>(null);
   const [events, setEvents] = useState<EventView[]>([]);
+  const [battleRewards, setBattleRewards] = useState<BattleRewardsView>({});
+  const [droppedItems, setDroppedItems] = useState<Array<{ equipKey: string; name: string }>>([]);
   const [floating, setFloating] = useState<Record<string, { text: string; tone: string; key: number }>>({});
   const [selectedSkill, setSelectedSkill] = useState<string | null>(null);
   const [pendingTarget, setPendingTarget] = useState<string | null>(null);
@@ -111,12 +138,15 @@ export default function Battle() {
   const startedRef = useRef(false);
 
   const node = trpc.world.node.useQuery({ nodeKey }, { enabled: Boolean(nodeKey) });
+  const detail = trpc.battle.detail.useQuery({ battleId: battleId! }, { enabled: Boolean(battleId) });
 
   const start = trpc.battle.start.useMutation({
     onSuccess: (result) => {
       setBattleId(result.battleId);
       setState(result.state as StateView);
       setEvents((result.events ?? []) as EventView[]);
+      setBattleRewards({});
+      setDroppedItems([]);
       if ((result.state as StateView).finished) {
         if (result.reserveAvailable && result.reserveTeam) setReserveOffer({ name: result.reserveTeam.name, memberCount: result.reserveTeam.memberCount });
         toast.info(result.state.result === "won" ? "战斗已结束：胜利" : "战斗已结束");
@@ -144,6 +174,10 @@ export default function Battle() {
       if (Object.keys(next).length > 0) setFloating(next);
       if (result.finished) {
         const finished = result.finished as FinishedBattleView;
+        if (finished.settlement) {
+          setBattleRewards(finished.settlement.rewards ?? {});
+          setDroppedItems(finished.settlement.droppedItems ?? []);
+        }
         if (finished.reserveAvailable && finished.reserveTeam) setReserveOffer({ name: finished.reserveTeam.name, memberCount: finished.reserveTeam.memberCount });
         void utils.battle.recent.invalidate();
         void utils.keep.home.invalidate();
@@ -159,6 +193,10 @@ export default function Battle() {
       setState(result.state as StateView);
       setEvents((current) => [...current, ...((result.events ?? []) as EventView[])].slice(-80));
       const finished = result.finished as FinishedBattleView;
+      if (finished.settlement) {
+        setBattleRewards(finished.settlement.rewards ?? {});
+        setDroppedItems(finished.settlement.droppedItems ?? []);
+      }
       if (finished.reserveAvailable && finished.reserveTeam) setReserveOffer({ name: finished.reserveTeam.name, memberCount: finished.reserveTeam.memberCount });
       void utils.battle.recent.invalidate();
       void utils.keep.home.invalidate();
@@ -181,6 +219,8 @@ export default function Battle() {
       setReserveOffer(null);
       setBattleId(result.battleId);
       setState(result.state as StateView);
+      setBattleRewards({});
+      setDroppedItems([]);
       setEvents((current) => [...current, ...((result.events ?? []) as EventView[])].slice(-80));
       setSelectedSkill(null);
       setPendingTarget(null);
@@ -191,6 +231,13 @@ export default function Battle() {
   });
 
   const recent = trpc.battle.recent.useQuery();
+
+  useEffect(() => {
+    if (state?.result !== "won" || detail.data?.status !== "won" || !detail.data.rewards) return;
+    const rewards = detail.data.rewards as BattleRewardsView;
+    setBattleRewards(rewards);
+    setDroppedItems(rewards.droppedItems ?? []);
+  }, [detail.data?.status, detail.data?.rewards, state?.result]);
 
   // 进入页面自动开战一次
   useEffect(() => {
@@ -407,8 +454,47 @@ export default function Battle() {
                   <p className="text-sm text-[color:var(--parchment-dim)]">
                     {state.result === "won" ? "远征胜利。奖励已结算并写入你的档案。" : "远征失败。调整装备与队伍后再来一次。"}
                   </p>
+                  <div className="rounded-sm border border-[color:var(--gold-600)]/45 bg-[color:var(--ink-800)]/45 p-3">
+                    <div className="flex items-center gap-1.5 text-xs text-[color:var(--gold-300)]">
+                      <Package size={14} />
+                      <span>奖励清单</span>
+                    </div>
+                    {state.result === "won" ? (
+                      <>
+                        <div className="mt-2 grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+                          {REWARD_LABELS.map(({ key, label }) => {
+                            const value = battleRewards[key];
+                            if (!value) return null;
+                            return (
+                              <div key={key} className="flex items-center justify-between gap-2 rounded-sm border border-[color:var(--ink-500)]/45 bg-[color:var(--ink-900)]/45 px-2 py-1.5 text-xs">
+                                <span className="text-[color:var(--parchment-muted)]">{label}</span>
+                                <span className="text-numeric text-[color:var(--gold-300)]">+{value.toLocaleString()}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                        <div className="mt-3 border-t border-[color:var(--ink-500)]/45 pt-2">
+                          <div className="text-xs text-[color:var(--parchment-muted)]">装备掉落</div>
+                          {droppedItems.length > 0 ? (
+                            <div className="mt-1.5 space-y-1.5">
+                              {droppedItems.map((item, index) => (
+                                <div key={`${item.equipKey}-${index}`} className="flex items-center justify-between gap-2 rounded-sm border border-[color:var(--ink-500)]/45 bg-[color:var(--ink-900)]/45 px-2 py-1.5 text-xs">
+                                  <span className="text-[color:var(--parchment)]">{item.name}</span>
+                                  <span className="text-[color:var(--parchment-muted)]">已入库</span>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="mt-1 text-xs text-[color:var(--parchment-muted)]">本次没有装备掉落。</p>
+                          )}
+                        </div>
+                      </>
+                    ) : (
+                      <p className="mt-1.5 text-xs text-[color:var(--parchment-muted)]">失败战斗不掉落奖励。</p>
+                    )}
+                  </div>
                   <div className="flex flex-wrap gap-2">
-                    <Button className="btn-gold border-transparent text-[color:var(--ink-950)]" onClick={() => { startedRef.current = true; setState(null); setEvents([]); start.mutate({ nodeKey }); }} disabled={start.isPending}>
+                    <Button className="btn-gold border-transparent text-[color:var(--ink-950)]" onClick={() => { startedRef.current = true; setState(null); setBattleRewards({}); setDroppedItems([]); setEvents([]); start.mutate({ nodeKey }); }} disabled={start.isPending}>
                       再战一次
                     </Button>
                     <Link href="/world">

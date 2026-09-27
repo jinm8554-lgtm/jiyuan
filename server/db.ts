@@ -1,5 +1,6 @@
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
+import { createPool } from "mysql2/promise";
 import { InsertUser, users } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
@@ -9,7 +10,35 @@ let _db: ReturnType<typeof drizzle> | null = null;
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
-      _db = drizzle(process.env.DATABASE_URL);
+      // MariaDB exposes JSON columns as text (unlike MySQL/TiDB's JSON type).
+      // Drizzle supplies a per-query typeCast callback, so wrap the pool
+      // method and parse only JSON-shaped strings returned by that callback.
+      const pool = createPool({ uri: process.env.DATABASE_URL });
+      const rawQuery: any = pool.query.bind(pool);
+      (pool as any).query = (query: any, ...args: any[]) => {
+        if (query && typeof query === "object" && typeof query.typeCast === "function") {
+          const drizzleTypeCast = query.typeCast;
+          query = {
+            ...query,
+            typeCast: (field: unknown, next: () => unknown) => {
+              const value = drizzleTypeCast(field, next);
+              if (typeof value === "string") {
+                const trimmed = value.trim();
+                if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+                  try {
+                    return JSON.parse(trimmed);
+                  } catch {
+                    // Keep malformed text unchanged so the original value is visible.
+                  }
+                }
+              }
+              return value;
+            },
+          };
+        }
+        return rawQuery(query, ...args);
+      };
+      _db = drizzle(pool) as unknown as ReturnType<typeof drizzle>;
     } catch (error) {
       console.warn("[Database] Failed to connect:", error);
       _db = null;

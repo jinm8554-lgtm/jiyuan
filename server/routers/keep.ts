@@ -386,6 +386,41 @@ export const keepRouter = router({
       });
   }),
 
+  /** 编年史中的任务记录：保留已完成与已领取的任务，不出现在主城任务列表 */
+  questHistory: protectedProcedure.query(async ({ ctx }) => {
+    const profile = await resolveProfile(ctx);
+    const db = await getDb();
+    if (!db) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "数据库连接暂不可用" });
+    const rows = await ensureQuests(profile.id);
+    const configs = await db.select().from(quests);
+    const map = new Map(configs.map((c) => [c.questKey, c]));
+    return rows
+      .filter((row) => row.status === "completed" || row.status === "claimed")
+      .map((row) => {
+        const config = map.get(row.questKey);
+        const objectives = (config?.objectives ?? []) as Array<{ label?: string; count?: number; type?: string }>;
+        const progress = (row.progress ?? {}) as Record<string, number>;
+        return {
+          questKey: row.questKey,
+          status: row.status,
+          name: config?.name ?? row.questKey,
+          chapter: config?.chapter ?? 1,
+          questType: config?.questType ?? "main",
+          description: config?.description ?? "",
+          rewards: config?.rewards ?? {},
+          completedAt: row.completedAt,
+          claimedAt: row.claimedAt,
+          objectives: objectives.map((objective, index) => ({
+            label: objective.label ?? "",
+            type: objective.type ?? "",
+            current: progress[String(index)] ?? 0,
+            target: Number(objective.count ?? 1),
+          })),
+        };
+      })
+      .sort((a, b) => (b.completedAt?.getTime() ?? 0) - (a.completedAt?.getTime() ?? 0));
+  }),
+
   claimQuest: protectedProcedure
     .input(z.object({ questKey: z.string().min(1).max(64) }))
     .mutation(async ({ ctx, input }) => {
