@@ -1,0 +1,41 @@
+{
+  "version": "7",
+  "dialect": "mysql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "5",
+      "when": 1790432199873,
+      "tag": "0000_wandering_lady_deathstrike",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1790432602575,
+      "tag": "0001_aetherfall_init",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1790442707736,
+      "tag": "0002_shocking_tyger_tiger",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1790444302507,
+      "tag": "0003_woozy_omega_red",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "5",
+      "when": 1790447916843,
+      "tag": "0004_chunky_ironclad",
+      "breakpoints": true
+    }
+  ]
+}

@@ -1,0 +1,261 @@
+# 《裂隙纪元》本地开发文档
+
+> 目标读者：接手本项目的开发者。读完后应能在本地跑起完整游戏 + GM 后台并开始改代码。
+
+---
+
+## 1. 技术栈
+
+| 层 | 选型 |
+| --- | --- |
+| 前端 | React 19 + TypeScript 5.9 + Vite 7 + Tailwind CSS 4 + shadcn/ui + wouter |
+| 数据访问 | tRPC 11（端到端类型安全）+ TanStack Query 5 |
+| 后端 | Node.js 22 + Express 4（tRPC 挂载在 `/api/trpc`） |
+| 数据库 | MySQL / TiDB，Drizzle ORM 0.44 + drizzle-kit |
+| 鉴权 | Manus OAuth 会话 Cookie（服务端 `protectedProcedure` / `adminProcedure` 守卫） |
+| 测试 | Vitest 2（单元测试 + 通过 router caller 的接口/流程测试） |
+| 对象存储 | `storagePut()` 上传立绘 / 头像 / 场景图，数据库只存路径 |
+
+---
+
+## 2. 目录结构
+
+```
+aetherfall/
+├─ client/                        前端
+│  ├─ src/
+│  │  ├─ pages/                   页面（Landing/Keep/World/Battle/Roster/
+│  │  │                          CharacterDetail/Recruit/Council/Chronicle）
+│  │  ├─ pages/gm/                GM 后台页面（9 个）
+│  │  ├─ components/game/         GameShell（外壳导航）、ui.tsx（原子组件）、
+│  │  │                          GameIcons.tsx（原创 SVG 图标集）
+│  │  ├─ components/ui/           shadcn/ui 基础组件
+│  │  ├─ index.css                设计令牌（颜色/字体/投影/按钮样式）
+│  │  └─ App.tsx                  路由表（22 条 Route）
+│  └─ index.html                  字体引入（Cinzel / Noto Serif SC）
+├─ server/
+│  ├─ routers.ts                  根路由（挂载 meta/keep/character/recruit/
+│  │                             world/battle/ai/admin）
+│  ├─ routers/                    各域路由 + _shared.ts（档案解析/权限）
+│  ├─ game/                       纯逻辑层（不依赖 Express）
+│  │  ├─ formulas.ts              数值引擎（纯函数，100% 可测）
+│  │  ├─ battle.ts                回合制战斗引擎
+│  │  ├─ recruit.ts               抽卡引擎（概率/保底/重复转化）
+│  │  ├─ ai.ts                    AI 提示词组装 + Schema + 校验
+│  │  ├─ aiClient.ts              OpenAI 兼容调用 + 内置网关 + 密钥加解密
+│  │  ├─ backup.ts                备份 / 恢复
+│  │  ├─ progress.ts              任务进度 / 解锁同步 / 区域控制度
+│  │  ├─ service.ts               数据服务层（档案/结算/角色/装备/队伍/地图）
+│  │  ├─ seed.ts                  幂等配置写入
+│  │  ├─ data/                    策划配置数据（角色/技能/装备/建筑/世界/任务/剧情）
+│  │  └─ *.test.ts                测试
+│  ├─ db.ts                       Drizzle 实例 + 用户查询
+│  └─ _core/                      框架层（OAuth、context、trpc、LLM、存储代理）
+├─ drizzle/
+│  ├─ schema.ts                   33 张表
+│  └─ 0001_aetherfall_init.sql    建表迁移（32 条 CREATE TABLE）
+├─ scripts/
+│  ├─ migrate.mjs                 迁移执行器（幂等）
+│  ├─ seed.ts                     配置写入 CLI（--force / --admin）
+│  └─ optimize-assets.py          美术资源压缩
+└─ docs/                          全部设计、架构与运维文档
+```
+
+**分层原则**：`server/game/` 是不含 IO 规则逻辑之外的纯业务层，可被测试直接调用；
+`server/routers/` 只做「鉴权 → 解析入参 → 调用服务层 → 返回 DTO」；
+`client/` 不计算任何权威数值（概率、保底、战斗结果、奖励全部由服务端下发）。
+
+---
+
+## 3. 环境准备
+
+### 3.1 必需环境变量
+
+| 变量 | 说明 |
+| --- | --- |
+| `DATABASE_URL` | MySQL/TiDB 连接串，例如 `mysql://user:pass@host:4000/db` |
+| `JWT_SECRET` | 会话签名密钥；**同时用于派生 API Key 加密密钥** |
+| `VITE_APP_ID` / `OAUTH_SERVER_URL` / `VITE_OAUTH_PORTAL_URL` | Manus OAuth 相关 |
+| `BUILT_IN_FORGE_API_URL` / `BUILT_IN_FORGE_API_KEY` | 内置 LLM 网关（使用内置 AI 时必需） |
+
+> 不要把这些变量写进代码或提交到仓库。本地通过运行环境的注入机制提供。
+
+### 3.2 安装与启动
+
+```bash
+# 1. 安装依赖（pnpm）
+pnpm install
+
+# 2. 执行数据库迁移
+node scripts/migrate.mjs
+
+# 3. 写入内置策划配置（角色/技能/装备/建筑/世界/任务/剧情/卡池）
+pnpm tsx scripts/seed.ts
+
+# 4. 启动开发服务器
+pnpm dev
+```
+
+- 前端与后端由同一个进程提供（Vite 中间件模式），默认端口 **3000**。
+- 生产构建：`pnpm build`，启动：`pnpm start`。
+
+### 3.3 成为管理员
+
+GM 后台需要 `users.role = 'admin'`：
+
+```bash
+# 按 openId 或 userId 提升为管理员
+pnpm tsx scripts/seed.ts --admin <openId 或 userId>
+```
+
+或在数据库中直接执行：
+
+```sql
+UPDATE users SET role = 'admin' WHERE openId = '<your-open-id>';
+```
+
+---
+
+## 4. 常用命令
+
+| 命令 | 作用 |
+| --- | --- |
+| `pnpm dev` | 启动开发服务器（热更新） |
+| `pnpm build` | 构建前端 + 打包后端到 `dist/` |
+| `pnpm start` | 以生产模式运行 |
+| `pnpm check` | TypeScript 全量类型检查（提交前必跑） |
+| `pnpm test` | 运行 Vitest 测试套件（66 个用例） |
+| `node scripts/migrate.mjs` | 执行迁移（幂等，可重复运行） |
+| `pnpm tsx scripts/seed.ts` | 写入缺失的内置配置（保留后台改动） |
+| `pnpm tsx scripts/seed.ts --force` | 用代码中的配置**覆盖**数据库配置 |
+| `pnpm tsx scripts/seed.ts --admin <openId>` | 提升管理员 |
+
+> `--force` 会覆盖 GM 后台的改动，只在明确需要「以代码为准」时使用。
+
+---
+
+## 5. 开发一个功能的标准流程（四步）
+
+以「新增一个建筑」为例：
+
+1. **改数据 / 表**
+   - 配置数据改 `server/game/data/buildings.ts`（或直接在 GM 后台改，落库到 `buildings` 表）。
+   - 若需要新字段，改 `drizzle/schema.ts`，然后 `pnpm drizzle-kit generate` 生成迁移。
+
+2. **加数据访问**
+   - 在 `server/game/service.ts` 增加查询/写入辅助函数，返回原始 Drizzle 行。
+
+3. **加 tRPC 过程**
+   - 在 `server/routers/<域>.ts` 增加过程：
+     - 玩家侧用 `protectedProcedure` + `resolveProfile(ctx)` 取档案。
+     - 后台侧用 `adminProcedure`（内部仍是 `requireAdmin`）。
+   - 入参一律用 Zod 校验，错误抛 `TRPCError` 并给出**中文可读 message**。
+
+4. **接前端**
+   - 在 `client/src/pages/*.tsx` 用 `trpc.<域>.<过程>.useQuery / useMutation`。
+   - 必须处理 **加载 / 空数据 / 成功 / 失败** 四态（用 `LoadingState` / `EmptyState` / `ErrorState`）。
+   - 列表增删改用乐观更新（`onMutate` 改缓存，`onError` 回滚）。
+
+5. **补测试**
+   - 纯逻辑加 `server/game/game.test.ts`；跨接口流程加 `server/game/flow.test.ts`。
+   - 跑 `pnpm check && pnpm test`。
+
+---
+
+## 6. 前端约定
+
+### 6.1 设计系统
+
+- 全部颜色/字体/阴影走 `client/src/index.css` 的 CSS 变量与 Tailwind 令牌，**不要在组件里硬编码色值**。
+- 主题固定为暗色（`App.tsx` 中 `defaultTheme="dark"`），与 CSS 中 `.dark` 区块保持一致。
+- 复用 `client/src/components/game/ui.tsx` 的原子组件：
+  `Panel` / `SectionTitle` / `RarityBadge` / `ElementTag` / `ResourcePill` / `ProgressBar` /
+  `StatRow` / `SafeImage` / `Avatar` / `LoadingState` / `SkeletonState` / `EmptyState` /
+  `ErrorState` / `Tag` / `AllAgesNote`。
+- 图标只用 `GameIcons.tsx` 中**原创手绘 SVG**，不引入第三方图标资源。
+
+### 6.2 页面骨架
+
+游戏内页面统一包在 `GameShell` 里（顶部资源条 + 桌面侧边导航 + 移动端底部导航）。
+新增游戏页时在 `App.tsx` 中按 `<Route path="/xxx"><GameRoute>...</GameRoute></Route>` 注册。
+
+### 6.3 常见坑
+
+| 坑 | 说明 |
+| --- | --- |
+| 查询入参引用不稳定 | 不要在 render 里直接写 `{ ids: [1,2,3] }` 或 `new Date()`，会导致无限请求；用 `useState`/`useMemo` 固定引用 |
+| `useEffect` 依赖对象 | 依赖 `activeTeam` 这类每次取数都新建的对象会冲掉用户未保存的编辑；应依赖稳定签名（见 `Roster.tsx` 的 `teamSignature`） |
+| 语义色配对 | 用 `bg-card` 必须配 `text-card-foreground`，否则文字可能不可见 |
+| 空 `Select.Item` | `value` 不能为空字符串 |
+| 图片 404 | 资源路径来自对象存储（`/manus-storage/...`），改动资源后要同步 `server/game/data/assets.ts` 并重新 seed |
+
+---
+
+## 7. 后端约定
+
+- **服务端权威**：概率、保底计数、战斗结算、奖励、解锁判定全部在服务端计算；客户端只做展示。
+- **档案解析**：所有玩家侧过程先 `const profile = await resolveProfile(ctx)`，它会在首次访问时自动建档
+  （初始角色、初始建筑、区域/节点状态、默认远征队、保底记录）。
+- **错误语义**：
+  | 代码 | 场景 |
+  | --- | --- |
+  | `UNAUTHORIZED` | 未登录 / 会话过期 |
+  | `FORBIDDEN` | 权限不足（非管理员 / 操作不属于自己的数据） |
+  | `BAD_REQUEST` | 入参非法或业务前置条件不满足（如资源不足） |
+  | `NOT_FOUND` | 目标不存在 |
+  | `PRECONDITION_FAILED` | 数据库不可用（前端据此提示稍后重试） |
+- **审计**：后台写操作调用 `audit(ctx, action, targetType, targetKey, payload)`，写入 `adminAuditLogs`。
+- **时间**：数据库与 API 层一律使用 UTC 毫秒时间戳；前端用 `toLocaleString()` 本地化展示。
+
+---
+
+## 8. 数据库与迁移
+
+```bash
+# 修改 schema 后生成迁移
+pnpm drizzle-kit generate --name=<描述>
+
+# 应用迁移（幂等）
+node scripts/migrate.mjs
+```
+
+- `dataMigrations` 表记录已应用的迁移文件名，重复执行会跳过。
+- **迁移必须向前兼容**：新增列给默认值，不要删列；改名用「新增 + 回填 + 保留旧列」三步走。
+- 迁移执行器会打印每条语句的执行结果，失败时直接报错退出，不会静默跳过。
+
+---
+
+## 9. 测试
+
+```bash
+pnpm test                 # 全部
+pnpm test server/game/game.test.ts    # 仅单元测试
+pnpm test server/game/flow.test.ts    # 仅接口/流程测试
+```
+
+- `game.test.ts`：数值公式、抽卡概率与保底、战斗引擎、AI Schema 校验、配置完整性、安全（哈希/加密）。
+- `flow.test.ts`：通过 `appRouter.createCaller()` 直接调 tRPC 过程，与 HTTP 共用同一套
+  中间件与校验，覆盖「建档 → 建造 → 招募 → 编队 → 养成 → 探索战斗 → 任务 → 剧情 →
+  AI 议事 → GM 配置同步 → 备份恢复 → Token 安全 → 审计」共 15 个端到端场景。
+- 无 `DATABASE_URL` 时，流程测试自动跳过，纯单元测试仍可运行。
+- 流程测试会自建并清理专属测试账号，且会还原被临时修改的卡池概率，**不会污染开发库**。
+
+---
+
+## 10. 美术资源工作流
+
+```bash
+# 1. 原始大图放在 /home/ubuntu/webdev-static-assets/（portraits / avatars / scenes）
+# 2. 压缩为 Web 友好的 JPEG
+python3 scripts/optimize-assets.py
+
+# 3. 上传到项目对象存储，得到 /manus-storage/xxx.jpg 路径
+manus-upload-file --webdev /home/ubuntu/webdev-static-assets/optimized/**/*.jpg
+
+# 4. 把路径写入 server/game/data/assets.ts
+
+# 5. 覆盖写入数据库配置
+pnpm tsx scripts/seed.ts --force
+```
+
+> 不要把图片放进 `client/public/` 或 `client/src/assets/`，会导致构建/部署超时。

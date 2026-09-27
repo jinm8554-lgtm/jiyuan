@@ -1,0 +1,70 @@
+name: Test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_DATABASE: aetherfall
+          MYSQL_USER: aetherfall
+          MYSQL_PASSWORD: aetherfall
+          MYSQL_ROOT_PASSWORD: root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=12
+
+    env:
+      DATABASE_URL: mysql://aetherfall:aetherfall@127.0.0.1:3306/aetherfall
+      JWT_SECRET: ci-only-aetherfall-secret
+      NODE_ENV: test
+      LOCAL_AUTH_ENABLED: "true"
+      VITE_LOCAL_AUTH_ENABLED: "true"
+      VITE_APP_ID: local-dev
+      PORT: 3020
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Enable pnpm
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Apply database migrations
+        run: node scripts/migrate.mjs
+
+      - name: Seed game content
+        run: pnpm tsx scripts/seed.ts
+
+      - name: Type-check
+        run: pnpm check
+
+      - name: Run unit and database flow tests
+        run: pnpm test:ci
+
+      - name: Build application
+        run: pnpm build
+
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run browser smoke tests
+        run: pnpm test:e2e

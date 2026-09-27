@@ -1,0 +1,413 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* =========================================================================
+   《裂隙纪元 · Aetherfall Chronicle》设计系统
+   视觉关键词：羊皮纸 · 铁灰 · 金饰 · 星辉 · 手绘边界 · 陈旧但不脏
+   全部令牌与配色为本项目原创，未模仿任何具体游戏。
+   ========================================================================= */
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  /* 游戏专属令牌 */
+  --color-ink-950: var(--ink-950);
+  --color-ink-900: var(--ink-900);
+  --color-ink-800: var(--ink-800);
+  --color-ink-700: var(--ink-700);
+  --color-ink-600: var(--ink-600);
+  --color-ink-500: var(--ink-500);
+  --color-parchment: var(--parchment);
+  --color-parchment-dim: var(--parchment-dim);
+  --color-parchment-muted: var(--parchment-muted);
+  --color-gold-600: var(--gold-600);
+  --color-gold-500: var(--gold-500);
+  --color-gold-300: var(--gold-300);
+  --color-aether-500: var(--aether-500);
+  --color-aether-300: var(--aether-300);
+  --color-ember-600: var(--ember-600);
+  --color-ember-400: var(--ember-400);
+  --color-blood: var(--blood);
+  --color-verdant: var(--verdant);
+  --color-frost: var(--frost);
+  --color-violet: var(--violet);
+  --font-display: "Cinzel", "Noto Serif SC", serif;
+  --font-serif: "Noto Serif SC", "Songti SC", serif;
+  --font-sans: "Inter", "Noto Sans SC", system-ui, sans-serif;
+  --ease-out-strong: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out-strong: cubic-bezier(0.77, 0, 0.175, 1);
+}
+
+:root {
+  --radius: 0.5rem;
+
+  /* 夜色羊皮纸：暗底、暖字、金饰 */
+  --ink-950: #080b10;
+  --ink-900: #0b1017;
+  --ink-800: #121a24;
+  --ink-700: #1a2430;
+  --ink-600: #243141;
+  --ink-500: #33455a;
+  --parchment: #efe3c6;
+  --parchment-dim: #b9ae93;
+  --parchment-muted: #7e7866;
+  --gold-600: #a9821c;
+  --gold-500: #c9a227;
+  --gold-300: #e8ce79;
+  --aether-500: #2e9bb5;
+  --aether-300: #7fe0f2;
+  --ember-600: #b54a24;
+  --ember-400: #e0763c;
+  --blood: #c24a4a;
+  --verdant: #57a382;
+  --frost: #6fa8d8;
+  --violet: #8a6fc7;
+
+  /* 语义令牌 */
+  --background: var(--ink-900);
+  --foreground: var(--parchment);
+  --card: var(--ink-800);
+  --card-foreground: var(--parchment);
+  --popover: var(--ink-700);
+  --popover-foreground: var(--parchment);
+  --primary: var(--gold-500);
+  --primary-foreground: var(--ink-950);
+  --secondary: var(--ink-700);
+  --secondary-foreground: var(--parchment-dim);
+  --muted: var(--ink-700);
+  --muted-foreground: var(--parchment-muted);
+  --accent: var(--ink-600);
+  --accent-foreground: var(--parchment);
+  --destructive: var(--blood);
+  --destructive-foreground: #1a0b0b;
+  --border: #33455a80;
+  --input: #33455a99;
+  --ring: var(--gold-500);
+  --chart-1: var(--gold-500);
+  --chart-2: var(--aether-500);
+  --chart-3: var(--ember-400);
+  --chart-4: var(--verdant);
+  --chart-5: var(--frost);
+  --sidebar: var(--ink-950);
+  --sidebar-foreground: var(--parchment-dim);
+  --sidebar-primary: var(--gold-500);
+  --sidebar-primary-foreground: var(--ink-950);
+  --sidebar-accent: var(--ink-800);
+  --sidebar-accent-foreground: var(--parchment);
+  --sidebar-border: #33455a66;
+  --sidebar-ring: var(--gold-500);
+}
+
+.dark {
+  --background: var(--ink-900);
+  --foreground: var(--parchment);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--font-sans);
+    background-image:
+      radial-gradient(1200px 600px at 15% -10%, rgba(46, 155, 181, 0.08), transparent 60%),
+      radial-gradient(900px 500px at 90% 0%, rgba(201, 162, 39, 0.07), transparent 55%),
+      linear-gradient(180deg, var(--ink-900) 0%, var(--ink-950) 100%);
+    background-attachment: fixed;
+  }
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-display);
+    letter-spacing: 0.02em;
+  }
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  [type="button"]:not(:disabled),
+  [type="submit"]:not(:disabled),
+  [type="reset"]:not(:disabled),
+  a[href],
+  select:not(:disabled),
+  input[type="checkbox"]:not(:disabled),
+  input[type="radio"]:not(:disabled) {
+    @apply cursor-pointer;
+  }
+  ::selection {
+    background: rgba(201, 162, 39, 0.32);
+  }
+  /* 滚动条：细金线 */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: var(--ink-950);
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #33455a;
+    border-radius: 999px;
+    border: 2px solid var(--ink-950);
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--gold-600);
+  }
+}
+
+@layer components {
+  .container {
+    width: 100%;
+    margin-left: auto;
+    margin-right: auto;
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+  .flex {
+    min-height: 0;
+    min-width: 0;
+  }
+  @media (min-width: 640px) {
+    .container {
+      padding-left: 1.5rem;
+      padding-right: 1.5rem;
+    }
+  }
+  @media (min-width: 1024px) {
+    .container {
+      padding-left: 2rem;
+      padding-right: 2rem;
+      max-width: 1400px;
+    }
+  }
+
+  /* --------- 面板：铁灰底 + 羊皮纸双线边框 + 角饰 --------- */
+  .panel {
+    position: relative;
+    background:
+      linear-gradient(180deg, rgba(36, 49, 65, 0.55) 0%, rgba(18, 26, 36, 0.9) 100%);
+    border: 1px solid rgba(51, 69, 90, 0.85);
+    border-radius: 6px;
+    box-shadow:
+      inset 0 1px 0 rgba(239, 227, 198, 0.05),
+      0 10px 30px -18px rgba(0, 0, 0, 0.9);
+  }
+  .panel-gold {
+    border-color: rgba(169, 130, 28, 0.55);
+  }
+  /* 手绘感内侧细线 */
+  .panel::before {
+    content: "";
+    position: absolute;
+    inset: 3px;
+    border: 1px solid rgba(239, 227, 198, 0.06);
+    border-radius: 4px;
+    pointer-events: none;
+  }
+
+  /* --------- 羊皮纸文书 --------- */
+  .parchment {
+    background:
+      linear-gradient(180deg, #221d15 0%, #1a1611 100%);
+    border: 1px solid rgba(169, 130, 28, 0.4);
+    color: var(--parchment);
+    position: relative;
+  }
+  .parchment::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-image: radial-gradient(rgba(239, 227, 198, 0.05) 1px, transparent 0);
+    background-size: 4px 4px;
+    opacity: 0.5;
+    pointer-events: none;
+  }
+
+  /* --------- 金色分隔线（两端渐隐） --------- */
+  .rule-gold {
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(201, 162, 39, 0.65), transparent);
+    border: 0;
+  }
+
+  /* --------- 稀有度边框 --------- */
+  .rarity-R {
+    border-color: rgba(176, 128, 80, 0.7);
+  }
+  .rarity-SR {
+    border-color: rgba(169, 183, 198, 0.85);
+    box-shadow: inset 0 0 18px -8px rgba(169, 183, 198, 0.5);
+  }
+  .rarity-SSR {
+    border-color: rgba(224, 184, 76, 0.95);
+    box-shadow:
+      inset 0 0 22px -8px rgba(224, 184, 76, 0.55),
+      0 0 22px -12px rgba(224, 184, 76, 0.7);
+  }
+
+  /* --------- 主按钮：金箔 --------- */
+  .btn-gold {
+    background: linear-gradient(180deg, #e8ce79 0%, #c9a227 45%, #a9821c 100%);
+    color: #16110a;
+    border: 1px solid #6d5312;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.45),
+      0 8px 18px -12px rgba(201, 162, 39, 0.9);
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+  .btn-gold:hover:not(:disabled) {
+    background: linear-gradient(180deg, #f2dd93 0%, #d6b13a 45%, #b58d20 100%);
+  }
+  .btn-gold:disabled {
+    filter: grayscale(0.6) brightness(0.7);
+  }
+
+  /* --------- 卡片交互 --------- */
+  .card-tap {
+    transition: transform 160ms var(--ease-out-strong), border-color 160ms var(--ease-out-strong), box-shadow 160ms var(--ease-out-strong);
+  }
+  .card-tap:active {
+    transform: scale(0.98);
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .card-lift:hover {
+      transform: translateY(-2px);
+    }
+  }
+
+  /* --------- 资源条与进度 --------- */
+  .bar-track {
+    background: rgba(8, 11, 16, 0.85);
+    border: 1px solid rgba(51, 69, 90, 0.9);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .bar-fill {
+    height: 100%;
+    transition: width 320ms var(--ease-out-strong);
+  }
+
+  /* --------- 进入动画（分组错落） --------- */
+  @media (prefers-reduced-motion: no-preference) {
+    .rise-in {
+      animation: rise-in 320ms var(--ease-out-strong) both;
+    }
+    @keyframes rise-in {
+      from {
+        opacity: 0;
+        transform: translateY(8px) scale(0.99);
+      }
+      to {
+        opacity: 1;
+        transform: none;
+      }
+    }
+    .stagger-1 {
+      animation-delay: 40ms;
+    }
+    .stagger-2 {
+      animation-delay: 90ms;
+    }
+    .stagger-3 {
+      animation-delay: 140ms;
+    }
+    .stagger-4 {
+      animation-delay: 190ms;
+    }
+
+    /* 战斗伤害飘字 */
+    .float-damage {
+      animation: float-damage 900ms var(--ease-out-strong) both;
+    }
+    @keyframes float-damage {
+      0% {
+        opacity: 0;
+        transform: translateY(6px) scale(0.94);
+      }
+      20% {
+        opacity: 1;
+        transform: translateY(-2px) scale(1.04);
+      }
+      100% {
+        opacity: 0;
+        transform: translateY(-26px) scale(1);
+      }
+    }
+
+    /* 星辉呼吸（SSR 卡） */
+    .aether-pulse {
+      animation: aether-pulse 3.4s var(--ease-in-out-strong) infinite;
+    }
+    @keyframes aether-pulse {
+      0%,
+      100% {
+        opacity: 0.55;
+      }
+      50% {
+        opacity: 0.95;
+      }
+    }
+  }
+
+  /* 文本层级 */
+  .text-caption {
+    font-size: 0.72rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--parchment-muted);
+  }
+  .text-display {
+    font-family: var(--font-display);
+    font-weight: 700;
+    letter-spacing: 0.04em;
+  }
+  .text-numeric {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+  }
+
+  /* 安全区（移动端底部导航） */
+  .pb-safe {
+    padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 0.5rem);
+  }
+}

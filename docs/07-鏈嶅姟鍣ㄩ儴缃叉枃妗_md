@@ -1,0 +1,190 @@
+# 《裂隙纪元》服务器部署文档
+
+> 目标读者：负责发布与运维的工程师。本文档覆盖环境变量、构建、迁移、发布、回滚与安全清单。
+
+---
+
+## 1. 运行时要求
+
+| 项 | 要求 |
+| --- | --- |
+| Node.js | 22.x（构建镜像仅需 Node，不需要额外系统依赖） |
+| 内存 | 512 MiB 起（Autoscale 默认规格即可） |
+| CPU | 1 vCPU 起 |
+| 数据库 | MySQL 8.0+ 或 TiDB（需支持 JSON 列与 `ON DUPLICATE KEY UPDATE`） |
+| 出网 | 需要访问 Manus OAuth、内置 LLM 网关（若使用）、以及外部 AI Base URL |
+| 请求超时 | 单请求 180s 上限；AI 调用超时建议配 `20000–30000ms` |
+
+> 注意：本项目**不依赖常驻进程或定时任务**，所有结算（离线资源、体力恢复）在玩家请求时按时间差惰性计算，
+> 因此天然适配无状态 / 自动伸缩部署。若未来加入常驻 Worker，需要改用常驻型运行环境。
+
+---
+
+## 2. 环境变量清单
+
+| 变量 | 必需 | 说明 |
+| --- | --- | --- |
+| `DATABASE_URL` | 是 | 数据库连接串（含账号密码），**只注入到服务端** |
+| `JWT_SECRET` | 是 | 会话 Cookie 签名密钥；同时用于派生 API Key 加密密钥。**更换后已保存的 AI 密钥需重新填写** |
+| `VITE_APP_ID` | 是 | Manus OAuth 应用 ID |
+| `OAUTH_SERVER_URL` | 是 | OAuth 后端地址 |
+| `VITE_OAUTH_PORTAL_URL` | 是 | 登录门户地址 |
+| `BUILT_IN_FORGE_API_URL` | 使用内置 AI 时 | 内置 LLM 网关地址 |
+| `BUILT_IN_FORGE_API_KEY` | 使用内置 AI 时 | 内置网关鉴权（仅服务端） |
+| `OWNER_OPEN_ID` / `OWNER_NAME` | 否 | 首位管理员标识 |
+
+**安全红线**
+
+- 不要把这些变量写入代码、`.env` 提交到仓库或打进前端产物。
+- 前端可见的只有 `VITE_` 前缀变量；**任何密钥、Token、会员数据、API Key 都不得使用 `VITE_` 前缀**。
+- `BUILT_IN_FORGE_API_KEY` 由框架在服务端使用，不会下发到浏览器。
+
+---
+
+## 3. 从零部署步骤
+
+```bash
+# 1. 拉取代码
+git clone <repo> && cd aetherfall
+
+# 2. 安装依赖（锁定版本，不要用 npm/yarn 混装）
+pnpm install --frozen-lockfile
+
+# 3. 类型检查与测试（发布门禁）
+pnpm check
+pnpm test
+
+# 4. 构建
+pnpm build          # 产物：前端静态文件 + dist/index.js（后端）
+
+# 5. 应用数据库迁移（幂等，可重复执行）
+node scripts/migrate.mjs
+
+# 6. 写入内置策划配置（首次部署必须；已存在则跳过，不覆盖后续后台改动）
+pnpm tsx scripts/seed.ts
+
+# 7. 启动服务
+pnpm start          # NODE_ENV=production node dist/index.js
+```
+
+### 3.1 首次部署后的必做配置
+
+1. 用 Manus 账号登录一次游戏，产生 `users` 记录。
+2. 提升为管理员：`pnpm tsx scripts/seed.ts --admin <openId 或 userId>`，或执行
+   `UPDATE users SET role='admin' WHERE openId='<your-open-id>';`
+3. 进入 **GM 后台 → AI 配置**，填入外部模型的 Base URL 与 API Key，拉取并选择模型，点击「调用测试」验证后启用。
+   （若使用内置网关，可跳过此步。）
+4. 在 **GM 后台 → 世界地图 / 招募池 / 任务与剧情** 核对内容是否与预期一致。
+5. 在 **备份与运维** 页面创建一次基线快照。
+
+---
+
+## 4. 健康检查与验证
+
+| 检查 | 方式 | 期望 |
+| --- | --- | --- |
+| 进程存活 | 请求首页 `/` | HTTP 200，返回 HTML |
+| 数据库连通 | `trpc.meta.health` | 返回 `ok: true` 与表计数 |
+| 会话链路 | 登录后访问 `/keep` | 正常返回领地首页数据 |
+| GM 权限 | 访问 `/gm` | 管理员可进；普通账号被拒（`FORBIDDEN`） |
+| AI 链路 | GM 后台「调用测试」 | 返回模型列表与示例输出 |
+
+---
+
+## 5. 更新与回滚
+
+### 5.1 常规发版
+
+```bash
+pnpm install --frozen-lockfile
+pnpm check && pnpm test
+node scripts/migrate.mjs      # 先迁库（向前兼容）
+pnpm build
+# 重启服务 / 触发新版本发布
+```
+
+> 顺序很重要：**先迁移、再发布代码**。迁移脚本保证向前兼容，因此旧版本代码在新库上仍可运行。
+
+### 5.2 配置类改动
+
+| 场景 | 操作 |
+| --- | --- |
+| 策划改了代码里的配置数据 | `pnpm tsx scripts/seed.ts --force`（**会覆盖后台改动**，先确认） |
+| GM 后台直接改 | 无需操作，客户端即时读取数据库 |
+| 需要恢复某个后台改动 | GM 后台「备份与运维 → 恢复」；先用「恢复预演」查看影响范围 |
+
+### 5.3 回滚
+
+1. **代码回滚**：发布上一个构建产物。
+2. **数据回滚**：进入 GM 后台 → 备份与运维 → 选择故障前的快照 → **先「恢复预演」** → 确认后「恢复」。
+   - 恢复前系统会**自动创建一份当前状态快照**，可再次回退。
+   - 恢复按业务键 upsert，不会破坏其他玩家数据。
+
+> 数据库**不要**做破坏性的向下迁移（如删列）。需要结构调整时采用「新增列 + 回填 + 保留旧列」。
+
+---
+
+## 6. 安全清单（发布前逐项确认）
+
+- [ ] 仓库中没有任何真实 API Key、密码、Token、会员数据或运行数据库导出。
+- [ ] `.env` 未被提交（检查 `.gitignore`）。
+- [ ] 所有密钥类变量都没有 `VITE_` 前缀。
+- [ ] AI 的 API Key 在库中为 AES-256-GCM 密文（`aiConfigs.apiKeyCipher`），界面只显示遮罩。
+- [ ] 会员 Token 在库中只保存 SHA-256 哈希与前缀（`apiTokens.tokenHash` / `tokenPrefix`），明文只在签发时返回一次。
+- [ ] GM 后台所有过程都使用 `adminProcedure`，并在前端做二次身份判断。
+- [ ] 玩家侧数据访问都带 `profileId` 过滤，避免越权读取他人存档。
+- [ ] 概率、保底、战斗结算、奖励均由服务端计算，客户端无法影响结果。
+- [ ] 少量高频接口（招募、战斗）有资源与次数校验，防止前端刷取。
+
+---
+
+## 7. 容量与性能建议
+
+| 项 | 建议 |
+| --- | --- |
+| 连接池 | 由 Drizzle + mysql2 管理；单实例并发请求数不要超过数据库连接上限 |
+| 冷启动 | Autoscale 下 `min-instances=0` 会有冷启动；对延迟敏感可设最小实例 1 |
+| 战斗数据 | 每场战斗一行 `battles`，日志截断保留最近 300 条；建议定期归档 `battles` / `battleLogs` |
+| AI 调用日志 | `aiCallLogs` 增长最快，建议按季度归档或只保留最近 N 天 |
+| 备份 | 配置快照约 160–200 KB；`full` 快照随玩家规模增长，建议每日一次 + 重要改动前手动一次 |
+| 图片 | 全部走对象存储，数据库只存路径；不要在 `client/public` 放大图 |
+
+---
+
+## 8. 监控与告警建议
+
+| 指标 | 说明 | 建议阈值 |
+| --- | --- | --- |
+| 5xx 比例 | 接口错误率 | > 2% 告警 |
+| `trpc.meta.health` | 数据库连通性 | 连续 3 次失败告警 |
+| AI 回退率 | `aiCallLogs.status` 中 `fallback`/`timeout` 占比 | > 20% 排查模型服务 |
+| AI 违规率 | `violations` 非空的调用占比 | 突增说明提示词或模型异常 |
+| 数据库连接数 | 接近上限会导致 `PRECONDITION_FAILED` | > 80% 告警 |
+| 备份成功率 | `backupRecords` 中 `completed` 占比 | 出现 `failed` 立即排查 |
+
+---
+
+## 9. 故障处置速查
+
+| 现象 | 可能原因 | 处置 |
+| --- | --- | --- |
+| 全站 502 / 无响应 | 进程崩溃、端口不匹配 | 查看服务日志启动阶段报错 |
+| 接口返回「数据库连接暂不可用」 | `DATABASE_URL` 失效、连接耗尽、DB 不可达 | 检查连接串与数据库状态、连接数 |
+| 登录后仍提示会话过期 | `JWT_SECRET` 变更、Cookie 域/协议不匹配 | 核对密钥与站点协议（HTTPS） |
+| GM 后台 403 | 账号不是 admin | 用 `scripts/seed.ts --admin` 提升 |
+| AI 全部走回退 | Key 失效 / Base URL 错误 / 额度用尽 | GM 后台「调用测试」，必要时重新填写 Key |
+| 立绘/场景不显示 | 资源路径失效、对象存储不可达 | 用 `SafeImage` 的占位图兜底；核对 `assets.ts` 路径 |
+| 玩家首战报「队伍中没有角色」 | 队伍为空（极端数据修复场景） | 在「同伴」页重新保存编队；新账号会自动编入初始角色 |
+
+---
+
+## 10. 部署产物与文件位置
+
+| 产物 | 位置 |
+| --- | --- |
+| 后端打包 | `dist/index.js`（esbuild 打包，`--packages=external`） |
+| 前端静态资源 | Vite 构建输出，由 Express 以中间件方式提供 |
+| 迁移脚本 | `drizzle/*.sql` |
+| 迁移执行器 | `scripts/migrate.mjs` |
+| 配置写入 CLI | `scripts/seed.ts` |
+| 资源优化脚本 | `scripts/optimize-assets.py` |

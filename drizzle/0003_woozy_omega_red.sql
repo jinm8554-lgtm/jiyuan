@@ -1,0 +1,1 @@
+ALTER TABLE `battles` ADD `reserveUsed` boolean DEFAULT false NOT NULL;

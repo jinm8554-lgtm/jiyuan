@@ -1,0 +1,170 @@
+# 《裂隙纪元》数据备份与恢复文档
+
+> 目标读者：运维与 GM。本文档说明备份范围、快照格式、恢复流程、校验机制与演练方法。
+
+---
+
+## 1. 备份范围
+
+游戏数据分为三类，备份策略不同：
+
+| 类别 | 表 | 是否进入快照 | 说明 |
+| --- | --- | --- | --- |
+| **配置数据** | `characters`、`skills`、`equipments`、`buildings`、`regions`、`worldNodes`、`quests`、`storyScenes`、`recruitPools`、`domainEvents` | ✅ `config` / `full` | GM 后台的全部策划内容，恢复后可完整还原一个版本的内容 |
+| **玩家存档** | `gameProfiles`、`playerCharacters`、`playerEquipments`、`teams`、`profileBuildings`、`regionStates`、`nodeStates`、`profileQuests`、`profileStoryFlags`、`profilePity`、`recruitHistories`、`battles` | ✅ `profile` / `full` | 角色、装备、队伍、资源、地图进度、任务、剧情标记、聊天相关状态 |
+| **运行数据** | `aiCallLogs`、`aiMessages`、`aiConversations`、`adminAuditLogs`、`backupRecords` | ❌ 不进入快照 | 体积大且可重建；避免备份膨胀 |
+| **账号数据** | `users`、`apiTokens` | ⚠️ 仅 `full`，且**不含密码/密钥明文** | Token 只含哈希与前缀，本身就不可还原为明文 |
+| **密钥配置** | `aiConfigs` | ✅ 但 `apiKeyCipher` 为密文 | 恢复后仍依赖同一 `JWT_SECRET` 才能解密；跨环境恢复会失效 |
+
+### 三种快照范围
+
+| `scope` | 内容 | 典型用途 |
+| --- | --- | --- |
+| `config` | 全部策划配置表 | 版本发布前留底、内容回滚 |
+| `profile` | 单个玩家完整存档（需指定 `targetProfileId`） | 客服误操作恢复、投诉处理 |
+| `full` | 配置 + 全部玩家存档 + 账号（脱敏） | 灾难恢复、环境迁移 |
+
+---
+
+## 2. 快照格式与校验
+
+快照为单个 JSON 文件，结构如下：
+
+```json
+{
+  "version": 1,
+  "scope": "config",
+  "createdAt": "2026-09-26T15:39:58.000Z",
+  "createdBy": 1,
+  "note": "自动化测试快照",
+  "tables": {
+    "characters": [ { "charKey": "adrian", "name": "艾德里安·瓦尔登", "...": "..." } ],
+    "skills": [ "..." ],
+    "equipments": [ "..." ]
+  },
+  "counts": { "characters": 15, "skills": 41, "equipments": 29 }
+}
+```
+
+- `backupRecords` 表中保存：文件名、范围、大小、**SHA-256 校验和**、各表行数、创建者、备注、状态。
+- 恢复时会重新计算校验和并与记录比对；不一致则拒绝恢复（防止文件被截断或篡改）。
+- 上传任意 JSON 做校验时，缺少 `version` / `tables` 字段会被明确拒绝，不会误当作备份。
+- `version` 高于当前支持的 `BACKUP_VERSION` 时拒绝恢复（防止新版本快照在旧版本上乱恢复）。
+
+---
+
+## 3. GM 后台操作
+
+进入 **GM 后台 → 备份与运维**。
+
+### 3.1 创建快照
+
+1. 点击 **创建备份**，选择范围（配置 / 全量 / 指定玩家）。
+2. 可填写备注（例如「1.2 版本发布前」）。
+3. 列表中会显示文件名、范围、大小、校验和、各表行数。
+
+### 3.2 校验上传的文件
+
+1. 点击 **上传备份文件校验**，选择本地 JSON 文件。
+2. 系统只做格式与版本校验，**不会写入数据库**，并返回各表行数摘要。
+3. 确认无误后，若要真正恢复，需使用列表中的既有备份或先创建备份。
+
+### 3.3 恢复
+
+1. 在列表中找到目标快照。
+2. **先点「恢复预演」** —— 不写库，只展示将会影响的表与行数。
+3. 确认无误后点 **恢复**。
+4. 系统会**自动先创建一份当前状态快照**，因此误恢复也能再回退。
+
+> 恢复采用「按业务键 upsert」策略（如 `charKey`、`nodeKey`、`questKey`、`profileId`），
+> 不会因为主键自增 ID 变化而破坏关联关系。
+
+---
+
+## 4. 自动备份机制
+
+| 机制 | 触发时机 | 说明 |
+| --- | --- | --- |
+| 恢复前自动快照 | 每次执行「恢复」 | 保证恢复操作本身可回退 |
+| 发布前手动快照 | 版本发布前 | 建议纳入发版流程 |
+| 日常快照 | 建议每日一次 | 可用外部定时机制触发 `admin.createBackup` |
+
+> 本项目**不内置常驻定时任务**（以适配无状态部署）。
+> 如需每日自动备份，请用外部调度器按计划调用 GM 后台的备份过程，
+> 或直接对数据库层做物理备份（mysqldump / TiDB BR）。
+
+---
+
+## 5. 数据库层次备份（推荐同时具备）
+
+应用层快照解决「策划内容与玩家存档」的细粒度回滚；数据库层备份解决「整库灾难恢复」。
+
+```bash
+# MySQL 逻辑备份（示例）
+mysqldump --single-transaction --routines --triggers \
+  --default-character-set=utf8mb4 \
+  -h <host> -P <port> -u <user> -p <database> \
+  | gzip > aetherfall-$(date +%Y%m%d-%H%M).sql.gz
+
+# 校验可读性（至少确认 gzip 完整）
+gzip -t aetherfall-*.sql.gz && echo OK
+```
+
+建议：
+
+- 每日一次全量 + 高频时间点增量（如 binlog），保留 7–30 天。
+- 备份文件存到**与数据库不同的故障域**（不同区域/账号的对象存储）。
+- 备份文件加密存储，且**不要**提交到代码仓库。
+
+---
+
+## 6. 恢复演练（每季度至少一次）
+
+在独立环境执行，验证备份真的可用：
+
+1. 用 `scripts/migrate.mjs` 在新库上建表。
+2. `pnpm tsx scripts/seed.ts` 写入内置配置。
+3. 在 GM 后台导入一份历史快照，执行「恢复预演」→「恢复」。
+4. 核对：
+   - 角色数量与稀有度分布是否一致；
+   - 卡池概率与保底配置是否与快照一致；
+   - 抽查一个玩家档案的资源、队伍、地图进度是否还原；
+   - 世界地图节点数与区域数是否一致（6 区域 / 35 节点）。
+5. 记录恢复耗时与遇到的问题。
+
+---
+
+## 7. 故障场景处置
+
+| 场景 | 处置 |
+| --- | --- |
+| GM 误改卡池概率/角色资料，玩家已受影响 | 用最近的 `config` 快照恢复；公告说明并做补偿（GM 后台可发放资源） |
+| 玩家存档被误覆盖/清空 | 用 `profile` 范围快照（指定该玩家的 `profileId`）恢复 |
+| 内容版本发布后发现问题 | 用发布前的 `config` 快照回滚内容；代码回滚到上一版本 |
+| 整库损坏 | 用数据库层备份重建，再导入最新的应用层 `full` 快照补齐内容 |
+| `JWT_SECRET` 被更换导致 AI 密钥读不出 | 无法从快照恢复（密文依赖旧密钥）；在 GM 后台重新填写 API Key |
+| 备份文件校验失败 | 文件被截断或篡改；改用同批次的其它快照或数据库层备份 |
+
+---
+
+## 8. 备份健康检查清单
+
+- [ ] 最近 24 小时内至少有一份成功快照（`backupRecords.status = 'completed'`）。
+- [ ] 快照的 `checksum` 与文件重算结果一致。
+- [ ] `config` 快照中角色数 ≥ 已发布角色数，节点数 = 35，区域数 = 6。
+- [ ] 数据库层备份文件存在且 `gzip -t` 通过。
+- [ ] 备份文件存放在与数据库不同的故障域。
+- [ ] 本季度已完成一次恢复演练并留下记录。
+- [ ] 备份文件中**不含**任何明文密码、Token 或 API Key。
+
+---
+
+## 9. 相关代码位置
+
+| 功能 | 文件 |
+| --- | --- |
+| 快照导出 / 校验 / 恢复 | `server/game/backup.ts` |
+| 后台备份过程 | `server/routers/admin.ts`（`listBackups` / `createBackup` / `restoreBackup` / `verifyBackupUpload`） |
+| 备份记录表 | `drizzle/schema.ts` → `backupRecords` |
+| 后台界面 | `client/src/pages/gm/GMOps.tsx` |
+| 空库建表与配置写入 | `scripts/migrate.mjs`、`scripts/seed.ts` |

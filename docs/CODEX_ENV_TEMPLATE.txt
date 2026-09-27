@@ -1,0 +1,23 @@
+# Copy this file to the project root as .env, then replace placeholders.
+# Never commit the resulting .env file.
+
+NODE_ENV=development
+PORT=3000
+DATABASE_URL=mysql://aetherfall:change-me@127.0.0.1:3306/aetherfall
+JWT_SECRET=replace-with-a-long-random-secret
+
+# OAuth / Manus-compatible auth configuration
+VITE_APP_ID=replace-with-oauth-app-id
+OAUTH_SERVER_URL=https://api.manus.im
+VITE_OAUTH_PORTAL_URL=https://manus.im
+OWNER_OPEN_ID=replace-with-owner-open-id
+
+# Optional built-in services for AI, storage, map proxy, and media helpers
+BUILT_IN_FORGE_API_URL=
+BUILT_IN_FORGE_API_KEY=
+VITE_FRONTEND_FORGE_API_URL=
+VITE_FRONTEND_FORGE_API_KEY=
+
+# Optional analytics placeholders used by client/index.html
+VITE_ANALYTICS_ENDPOINT=
+VITE_ANALYTICS_WEBSITE_ID=
