@@ -269,6 +269,14 @@ export default function Battle() {
     );
   }
 
+  if (node.data && !node.data.unlocked && !state && !start.isPending && !start.isError) {
+    return (
+      <PageSection title="远征">
+        <EmptyState title="节点尚未解锁" hint={node.data.lockReason ?? "请先完成前置节点或解锁条件。"} action={<Link href="/world"><Button className="btn-gold border-transparent text-[color:var(--ink-950)]">返回地图</Button></Link>} />
+      </PageSection>
+    );
+  }
+
   return (
     <PageSection
       title={`远征 · ${node.data?.name ?? nodeKey}`}

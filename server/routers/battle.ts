@@ -178,7 +178,8 @@ export const battleRouter = router({
       .from(nodeStates)
       .where(and(eq(nodeStates.profileId, profile.id), eq(nodeStates.nodeKey, input.nodeKey)))
       .limit(1);
-    if (nodeState && nodeState.status === "locked") {
+    // 没有节点状态行等同于尚未解锁，禁止通过直接 URL 绕过地图按钮。
+    if (!nodeState || nodeState.status === "locked") {
       throw new TRPCError({ code: "FORBIDDEN", message: "该节点尚未解锁" });
     }
 
