@@ -26,6 +26,8 @@ type BuildingBase = {
   hotspotY: number;
   cost: { gold: number; wood: number; iron: number; aether?: number; food?: number };
   produce?: { gold?: number; food?: number; wood?: number; iron?: number; aether?: number };
+  /** 星辉按日配置，运行时换算为每小时小数，避免高等级产出失控。 */
+  aetherPerDay?: number[];
   hours: number;
   unlocks?: Record<number, string>;
   effects?: Record<number, string>;
@@ -53,6 +55,7 @@ function buildLevels(base: BuildingBase, maxLevel = 10) {
         if (value) produce[key] = round(value * growthProduce);
       }
     }
+    if (base.aetherPerDay) produce.aether = base.aetherPerDay[level - 1] / 24;
 
     levels.push({
       level,
@@ -76,7 +79,8 @@ const BASES: BuildingBase[] = [
     hotspotX: 30,
     hotspotY: 58,
     cost: { gold: 260, wood: 220, iron: 60 },
-    produce: { aether: 2, gold: 6 },
+    produce: { gold: 6 },
+    aetherPerDay: [0.8, 1.1, 1.5, 1.8, 2, 2.4, 2.8, 3.2, 3.6, 4],
     hours: 0.25,
     unlocks: { 1: "开启招募大厅", 3: "解锁稀有招募池", 5: "解锁活动招募池", 7: "招募折扣 10%" },
     effects: { 2: "羁绊互动获得额外羁绊经验", 6: "每 12 小时获得一次免费单抽" },
@@ -118,7 +122,8 @@ const BASES: BuildingBase[] = [
     hotspotX: 70,
     hotspotY: 46,
     cost: { gold: 320, wood: 300, iron: 80, aether: 10 },
-    produce: { aether: 4 },
+    produce: {},
+    aetherPerDay: [1.2, 1.6, 2, 2.5, 3, 3.6, 4.2, 4.8, 5.4, 6],
     hours: 0.35,
     unlocks: { 1: "开启技能研习", 2: "解锁议事厅会议场景", 4: "解锁篝火夜谈场景", 6: "解锁战后复盘场景" },
     effects: { 3: "技能研习消耗 -8%", 7: "AI 对话可引用更多剧情状态" },

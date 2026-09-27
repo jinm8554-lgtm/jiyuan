@@ -62,7 +62,7 @@ export default function Recruit() {
 
   const exchange = trpc.recruit.exchangeShards.useMutation({
     onSuccess: async (result) => {
-      toast.success(`已兑换「${result.name}」`, { description: `消耗星辉 ${result.cost}` });
+      toast.success(`已兑换「${result.name}」`, { description: `消耗星辉信物 ${result.cost}` });
       await Promise.all([utils.keep.resources.invalidate(), utils.character.roster.invalidate()]);
     },
     onError: (error) => toast.error("兑换失败", { description: error.message }),
@@ -85,12 +85,18 @@ export default function Recruit() {
   }
 
   const aether = resources.data?.resources.aether ?? 0;
+  const recruitShards = resources.data?.resources.recruitShards ?? 0;
 
   return (
     <PageSection
       title="招募 · 星辉誓约"
       eyebrow="概率与保底由服务端配置统一管理，客户端无法修改"
-      actions={<Tag tone="aether">星辉 {aether.toLocaleString("zh-CN")}</Tag>}
+      actions={
+        <div className="flex flex-wrap gap-2">
+          <Tag tone="aether">星辉 {aether.toLocaleString("zh-CN")}</Tag>
+          <Tag tone="gold">星辉信物 {recruitShards.toLocaleString("zh-CN")}</Tag>
+        </div>
+      }
     >
       {/* 卡池选择 */}
       <div className="mb-4 grid gap-2 sm:grid-cols-3">
@@ -141,9 +147,9 @@ export default function Recruit() {
                     <div>
                       <div className="mb-1 flex items-center justify-between text-[0.68rem] text-[color:var(--parchment-muted)]">
                         <span>距离硬保底</span>
-                        <span className="text-numeric">{pool.pity.totalPulls - pool.pity.untilHardPity} / {pool.pity.hardPity || "—"}</span>
-                      </div>
-                      <ProgressBar value={pool.pity.totalPulls - pool.pity.untilHardPity} max={Math.max(1, pool.pity.hardPity)} height={7} tone="gold" />
+                          <span className="text-numeric">{pool.pity.pullsSinceSSR} / {pool.pity.hardPity || "—"}</span>
+                        </div>
+                        <ProgressBar value={pool.pity.pullsSinceSSR} max={Math.max(1, pool.pity.hardPity)} height={7} tone="gold" />
                       <p className="mt-1 text-[0.62rem] text-[color:var(--parchment-muted)]">{pool.pityRules.softPityText}</p>
                     </div>
                     <div className="rounded-sm border border-[color:var(--ink-500)]/60 bg-[color:var(--ink-800)]/50 p-2.5 text-[0.68rem] text-[color:var(--parchment-dim)]">
@@ -262,7 +268,7 @@ export default function Recruit() {
                     <SectionTitle eyebrow="Exchange" title="星辉信物兑换" />
                     <GoldRule />
                     <p className="mb-2 text-[0.68rem] leading-relaxed text-[color:var(--parchment-muted)]">
-                      重复角色自动转化为星辉信物（累计为星辉资源）。兑换会消耗星辉，确保每次重复都有价值。
+                      重复角色自动转化为星辉信物。信物与招募消耗的星辉分开计算，可在这里兑换装备。
                     </p>
                     {shop.isLoading ? (
                       <SkeletonState rows={3} />
@@ -285,10 +291,10 @@ export default function Recruit() {
                               size="sm"
                               variant="outline"
                               className="h-7 shrink-0 border-[color:var(--gold-600)]/50 text-[0.64rem] text-[color:var(--gold-300)]"
-                              disabled={exchange.isPending || aether < item.cost}
+                              disabled={exchange.isPending || recruitShards < item.cost}
                               onClick={() => exchange.mutate({ equipKey: item.equipKey })}
                             >
-                              {item.cost} 星辉
+                              {item.cost} 信物
                             </Button>
                           </div>
                         ))}

@@ -271,8 +271,9 @@ export function validateAiOutput(raw: unknown, presentCharKeys: string[]): Valid
       continue;
     }
     if (seenKeys.has(charKey)) {
+      // 同一角色在一轮内只能保留第一条有效发言。模型偶尔会把同一人的两句
+      // 拆成两条，属于可安全归一化的冗余，不应导致整轮回退或向玩家报错。
       rejected += 1;
-      violations.push({ code: "duplicate_char", detail: `角色 ${charKey} 在同一轮重复发言`, charKey });
       continue;
     }
     const action = String(entry.action ?? "");

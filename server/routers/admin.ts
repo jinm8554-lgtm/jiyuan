@@ -847,8 +847,20 @@ export const adminRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "数据库连接不可用" });
 
-      if (!input.useBuiltInGateway && !input.baseUrl) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "使用外部模型时必须填写 Base URL" });
+      const incomingKey = input.apiKey?.trim() ?? "";
+      const [existing] = input.id
+        ? await db.select({ id: aiConfigs.id, apiKeyCipher: aiConfigs.apiKeyCipher }).from(aiConfigs).where(eq(aiConfigs.id, input.id)).limit(1)
+        : [];
+      if (input.id && !existing) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "配置不存在" });
+      }
+      if (!input.useBuiltInGateway) {
+        if (!input.baseUrl?.trim()) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "使用外部模型时必须填写 Base URL" });
+        }
+        if (!incomingKey && !existing?.apiKeyCipher) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "使用外部模型时必须填写 API Key" });
+        }
       }
 
       const values: Record<string, unknown> = {
@@ -862,8 +874,8 @@ export const adminRouter = router({
         useBuiltInGateway: input.useBuiltInGateway,
         enabled: input.enabled ?? true,
       };
-      if (input.apiKey !== undefined && input.apiKey !== null && input.apiKey.trim() !== "") {
-        const plain = input.apiKey.trim();
+      if (incomingKey) {
+        const plain = incomingKey;
         values.apiKeyCipher = encryptSecret(plain, secretOf());
         values.apiKeyHint = plain.length > 8 ? `${plain.slice(0, 4)}****${plain.slice(-4)}` : "****";
       }
@@ -928,7 +940,7 @@ export const adminRouter = router({
       maxTokens: row.maxTokens,
       systemPrompt: row.systemPrompt,
       jsonStrict: row.jsonStrict,
-      useBuiltInGateway: row.useBuiltInGateway || !row.apiKeyCipher,
+      useBuiltInGateway: row.useBuiltInGateway,
     };
 
     try {
@@ -955,6 +967,28 @@ export const adminRouter = router({
     }
   }),
 
+  /** 确认使用一个已拉取的模型。模型必须属于当前配置，避免前端任意注入模型标识。 */
+  selectAiModel: adminProcedure
+    .input(z.object({ configId: z.number().int().positive(), modelId: z.string().min(1).max(128) }))
+    .mutation(async ({ ctx, input }) => {
+      requireAdmin(ctx);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "数据库连接不可用" });
+      const models = await db
+        .select({ id: aiModels.id, modelId: aiModels.modelId, enabled: aiModels.enabled })
+        .from(aiModels)
+        .where(eq(aiModels.configId, input.configId));
+      const model = models.find((item) => item.modelId === input.modelId && item.enabled);
+      if (!model) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "请选择该配置已拉取的可用模型" });
+      }
+      await db.update(aiModels).set({ isDefault: false }).where(eq(aiModels.configId, input.configId));
+      await db.update(aiModels).set({ isDefault: true }).where(eq(aiModels.id, model.id));
+      await db.update(aiConfigs).set({ model: input.modelId }).where(eq(aiConfigs.id, input.configId));
+      await audit(ctx, "ai.selectModel", "aiConfig", String(input.configId), { model: input.modelId });
+      return { ok: true, model: input.modelId };
+    }),
+
   /** AI 调用测试（GM 后台按钮） */
   testAiConfig: adminProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
     requireAdmin(ctx);
@@ -973,7 +1007,7 @@ export const adminRouter = router({
       maxTokens: row.maxTokens,
       systemPrompt: row.systemPrompt,
       jsonStrict: row.jsonStrict,
-      useBuiltInGateway: row.useBuiltInGateway || !row.apiKeyCipher,
+      useBuiltInGateway: row.useBuiltInGateway,
     };
 
     const result = await testAiConnection(runtime);

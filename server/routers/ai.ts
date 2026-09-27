@@ -49,7 +49,7 @@ async function loadRuntimeConfig(): Promise<AiRuntimeConfig> {
     maxTokens: row.maxTokens,
     systemPrompt: row.systemPrompt,
     jsonStrict: row.jsonStrict,
-    useBuiltInGateway: row.useBuiltInGateway || !apiKey,
+    useBuiltInGateway: row.useBuiltInGateway,
   };
 }
 
@@ -205,6 +205,24 @@ export const aiRouter = router({
       .update(aiConversations)
       .set({ status: "closed" })
       .where(and(eq(aiConversations.id, input.conversationId), eq(aiConversations.profileId, profile.id)));
+    return { ok: true };
+  }),
+
+  /** 删除一段会谈及其消息、调用日志；仅限会谈所属玩家自行清理。 */
+  deleteConversation: protectedProcedure.input(z.object({ conversationId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+    const profile = await resolveProfile(ctx);
+    const db = await getDb();
+    if (!db) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "数据库连接暂不可用" });
+    const [conversation] = await db
+      .select({ id: aiConversations.id })
+      .from(aiConversations)
+      .where(and(eq(aiConversations.id, input.conversationId), eq(aiConversations.profileId, profile.id)))
+      .limit(1);
+    if (!conversation) throw new TRPCError({ code: "NOT_FOUND", message: "会谈不存在或无权删除" });
+
+    await db.delete(aiMessages).where(eq(aiMessages.conversationId, conversation.id));
+    await db.delete(aiCallLogs).where(eq(aiCallLogs.conversationId, conversation.id));
+    await db.delete(aiConversations).where(eq(aiConversations.id, conversation.id));
     return { ok: true };
   }),
 

@@ -3,13 +3,12 @@ import {
   gameProfiles,
   nodeStates,
   playerCharacters,
-  profileBuildings,
   profileQuests,
   quests,
   regionStates,
 } from "../../drizzle/schema";
 import { getDb } from "../db";
-import { addResources } from "./service";
+import { addResources, isNodeClearedStatus } from "./service";
 
 /**
  * 进度系统（任务 / 解锁）
@@ -242,57 +241,70 @@ export async function syncUnlocks(profileId: number) {
   if (!profile) return;
 
   const nodeRows = await db.select().from(nodeStates).where(eq(nodeStates.profileId, profileId));
-  const cleared = new Set(nodeRows.filter((n) => n.status !== "locked").map((n) => n.nodeKey));
+  const cleared = new Set(nodeRows.filter((n) => isNodeClearedStatus(n.status)).map((n) => n.nodeKey));
   const regionRows = await db.select().from(regionStates).where(eq(regionStates.profileId, profileId));
   const owned = await db.select().from(playerCharacters).where(eq(playerCharacters.profileId, profileId));
-  const buildings = await db.select().from(profileBuildings).where(eq(profileBuildings.profileId, profileId));
-  void buildings;
 
   const { NODE_SEEDS, REGION_SEEDS } = await import("./data/world");
-  const { nodeUnlockCheck, regionUnlockCheck } = await import("./service");
+  const { loadRoster, nodeUnlockCheck, regionUnlockCheck } = await import("./service");
+  const roster = await loadRoster(profileId);
+  const topPower = roster
+    .slice(0, 4)
+    .reduce((sum, entry) => sum + entry.power, 0);
 
   const controlOf = (regionKey: string) => regionRows.find((r) => r.regionKey === regionKey)?.controlPercent ?? 0;
-  const srCount = owned.filter((o) => o.charKey).length;
-
-  for (const node of NODE_SEEDS) {
-    const state = nodeRows.find((n) => n.nodeKey === node.nodeKey);
-    if (!state || state.status !== "locked") continue;
-    const check = nodeUnlockCheck(node, {
-      clearedKeys: cleared,
-      renown: profile.renown,
-      chapter: profile.chapter,
-      power: 0,
-      controlPercent: controlOf("silverpine"),
-      ownedKeys: new Set(owned.map((o) => o.charKey)),
-    });
-    if (check.unlocked) {
-      await db.update(nodeStates).set({ status: "available" }).where(eq(nodeStates.id, state.id));
-    }
-  }
+  const srCount = roster.filter((entry) => entry.config.rarity !== "R").length;
+  const unlockedRegionKeys = new Set<string>();
 
   for (const region of REGION_SEEDS) {
     const state = regionRows.find((r) => r.regionKey === region.regionKey);
-    if (!state || state.unlocked) continue;
     const check = regionUnlockCheck(region, {
       clearedKeys: cleared,
       renown: profile.renown,
       chapter: profile.chapter,
-      srCount: Math.min(3, srCount),
-      power: 0,
+      srCount,
+      power: topPower,
       controlPercent: controlOf,
     });
-    if (check.unlocked) {
+    const unlocked = Boolean(state?.unlocked) || check.unlocked;
+    if (unlocked) unlockedRegionKeys.add(region.regionKey);
+
+    if (state && !state.unlocked && check.unlocked) {
       await db.update(regionStates).set({ unlocked: true }).where(eq(regionStates.id, state.id));
-      // 区域解锁后其首个节点变为可用
-      const firstNodes = NODE_SEEDS.filter((n) => n.regionKey === region.regionKey && Object.keys(n.unlock ?? {}).length === 0);
-      for (const node of firstNodes) {
-        const nodeState = nodeRows.find((n) => n.nodeKey === node.nodeKey);
-        if (nodeState && nodeState.status === "locked") {
-          await db.update(nodeStates).set({ status: "available" }).where(eq(nodeStates.id, nodeState.id));
-        } else if (!nodeState) {
-          await db.insert(nodeStates).values({ profileId, nodeKey: node.nodeKey, status: "available" });
-        }
-      }
+    } else if (!state) {
+      await db.insert(regionStates).values({
+        profileId,
+        regionKey: region.regionKey,
+        unlocked,
+        totalNodes: NODE_SEEDS.filter((node) => node.regionKey === region.regionKey).length,
+      });
+    }
+  }
+
+  // 节点必须同时满足“所属区域已解锁”和自身前置条件。顺便修复旧版本
+  // 曾错误写成 available 的灰色区域节点，但不回退已经通关的玩家进度。
+  for (const node of NODE_SEEDS) {
+    const state = nodeRows.find((n) => n.nodeKey === node.nodeKey);
+    const check = nodeUnlockCheck(node, {
+      clearedKeys: cleared,
+      renown: profile.renown,
+      chapter: profile.chapter,
+      power: topPower,
+      controlPercent: controlOf(node.regionKey),
+      ownedKeys: new Set(owned.map((entry) => entry.charKey)),
+    });
+    const shouldBeAvailable = unlockedRegionKeys.has(node.regionKey) && check.unlocked;
+
+    if (!state) {
+      await db.insert(nodeStates).values({
+        profileId,
+        nodeKey: node.nodeKey,
+        status: shouldBeAvailable ? "available" : "locked",
+      });
+    } else if (state.status === "locked" && shouldBeAvailable) {
+      await db.update(nodeStates).set({ status: "available" }).where(eq(nodeStates.id, state.id));
+    } else if (state.status === "available" && !shouldBeAvailable) {
+      await db.update(nodeStates).set({ status: "locked" }).where(eq(nodeStates.id, state.id));
     }
   }
 }

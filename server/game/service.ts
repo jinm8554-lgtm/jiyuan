@@ -235,12 +235,18 @@ export async function accrueProfile(profileId: number, now = new Date()): Promis
   const elapsedMs = Math.max(0, now.getTime() - profile.lastTickAt.getTime());
   const cappedMs = Math.min(elapsedMs, 12 * 3600 * 1000);
   const hours = cappedMs / 3600 / 1000;
+  const AETHER_MICRO_SCALE = 1_000_000;
+  const accruedAetherMicros = Math.max(
+    0,
+    profile.aetherAccrualMicros + Math.round(perHour.aether * hours * AETHER_MICRO_SCALE),
+  );
+  const aetherGain = Math.floor(accruedAetherMicros / AETHER_MICRO_SCALE);
   const gains: ResourceBundle = {
     gold: round(perHour.gold * hours),
     food: round(perHour.food * hours),
     wood: round(perHour.wood * hours),
     iron: round(perHour.iron * hours),
-    aether: round(perHour.aether * hours),
+    aether: aetherGain,
   };
 
   const marketLevel = buildingMap.get("market")?.level ?? 0;
@@ -253,10 +259,13 @@ export async function accrueProfile(profileId: number, now = new Date()): Promis
     wood: clamp(profile.wood + gains.wood, 0, cap),
     iron: clamp(profile.iron + gains.iron, 0, cap),
     aether: clamp(profile.aether + gains.aether, 0, cap),
+    aetherAccrualMicros: accruedAetherMicros % AETHER_MICRO_SCALE,
     stamina: staminaResult.stamina,
     staminaMax: staminaResult.staminaMax,
     staminaUpdatedAt: staminaResult.updatedAt,
-    lastTickAt: elapsedMs > cappedMs ? new Date(now) : profile.lastTickAt,
+    // 结算后推进时间戳，避免每次刷新都重复领取同一段离线产出。
+    // 超过 12 小时的部分仍按 cappedMs 结算，但也必须丢弃并从当前时刻重新计时。
+    lastTickAt: new Date(now),
   };
 
   if (
@@ -441,7 +450,7 @@ export function expForLevel(level: number): number {
   return round(60 + Math.pow(level, 1.55) * 22);
 }
 
-/** 授予角色（重复则转化为星辉信物 + 羁绊经验） */
+/** 授予角色（重复则转化为独立的星辉信物 + 羁绊经验） */
 export async function grantCharacter(profileId: number, charKey: string, via: string, shardMultiplier = 1) {
   const db = await getDb();
   if (!db) throw new Error("数据库不可用");
@@ -467,7 +476,7 @@ export async function grantCharacter(profileId: number, charKey: string, via: st
     const shards = round(shardTable[rarity] * shardMultiplier);
     await db
       .update(gameProfiles)
-      .set({ aether: sql`${gameProfiles.aether} + ${shards}` })
+      .set({ recruitShards: sql`${gameProfiles.recruitShards} + ${shards}` })
       .where(eq(gameProfiles.id, profileId));
     return { ok: true as const, duplicate: true as const, shards, bondLevel: bond.level };
   }
@@ -482,6 +491,18 @@ export async function grantCharacter(profileId: number, charKey: string, via: st
     storyState: {},
   });
   return { ok: true as const, duplicate: false as const, shards: 0, bondLevel: 1 };
+}
+
+/** 消耗星辉信物；信物是招募副产物，不与星辉资源混用。 */
+export async function spendRecruitShards(profileId: number, cost: number) {
+  const db = await getDb();
+  if (!db) throw new Error("数据库不可用");
+  const [profile] = await db.select().from(gameProfiles).where(eq(gameProfiles.id, profileId)).limit(1);
+  if (!profile) throw new Error("档案不存在");
+  if (profile.recruitShards < cost) return { ok: false as const, balance: profile.recruitShards };
+  const balance = profile.recruitShards - cost;
+  await db.update(gameProfiles).set({ recruitShards: balance }).where(eq(gameProfiles.id, profileId));
+  return { ok: true as const, balance };
 }
 
 export async function grantEquipment(profileId: number, equipKey: string, source = "battle") {
@@ -628,6 +649,11 @@ export async function loadRegionStates(profileId: number) {
   const db = await getDb();
   if (!db) return [];
   return db.select().from(regionStates).where(eq(regionStates.profileId, profileId));
+}
+
+/** 只有实际清剿或征服过的节点才能作为后续解锁前置。 */
+export function isNodeClearedStatus(status: string): boolean {
+  return status === "cleared" || status === "conquered";
 }
 
 export function nodeUnlockCheck(

@@ -8,19 +8,20 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "wouter";
 import { toast } from "sonner";
-import { AlertTriangle, Check, MessageSquarePlus, Send, Sparkles, Users, X } from "lucide-react";
+import { AlertTriangle, Check, MessageSquarePlus, Send, Sparkles, Trash2, Users, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import { PageSection } from "@/components/game/GameShell";
-import { AetherRune } from "@/components/game/GameIcons";
-import { AllAgesNote, Avatar, EmptyState, ErrorState, GoldRule, Panel, RarityBadge, SectionTitle, SkeletonState, Tag } from "@/components/game/ui";
+import { Avatar, EmptyState, ErrorState, GoldRule, Panel, RarityBadge, SectionTitle, SkeletonState, Tag } from "@/components/game/ui";
 
 const COUNCIL_SCENE = "/aetherfall-assets/council_d4b84b1c.jpg";
 const ALL_ACTIVE = "__auto__";
+const RECENT_TURN_LIMIT = 5;
 
 /** 会话中的一条消息（玩家 / 角色 / 旁白） */
 type MessageView = {
@@ -44,6 +45,20 @@ const ACTION_LABEL: Record<string, string> = {
   propose: "提出建议",
 };
 
+function groupMessagesByTurn(messages: MessageView[]) {
+  const turns: MessageView[][] = [];
+  let current: MessageView[] = [];
+  for (const message of messages) {
+    if (message.role === "player" && current.length > 0) {
+      turns.push(current);
+      current = [];
+    }
+    current.push(message);
+  }
+  if (current.length > 0) turns.push(current);
+  return turns;
+}
+
 export default function Council() {
   const utils = trpc.useUtils();
   const cast = trpc.ai.cast.useQuery();
@@ -57,6 +72,7 @@ const [scene, setScene] = useState<SceneKey>("council");
   const [pickerOpen, setPickerOpen] = useState(false);
   const [liveMessages, setLiveMessages] = useState<MessageView[]>([]);
   const [violations, setViolations] = useState<Array<{ code: string; detail: string }>>([]);
+  const [olderTurnsOpen, setOlderTurnsOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
   const conversation = trpc.ai.conversation.useQuery({ conversationId: conversationId ?? 0 }, { enabled: Boolean(conversationId) });
@@ -66,6 +82,7 @@ const [scene, setScene] = useState<SceneKey>("council");
       setConversationId(result.conversationId);
       setLiveMessages([]);
       setViolations([]);
+      setOlderTurnsOpen(false);
       setPickerOpen(false);
       toast.success("已开启一次议事厅会谈");
       await utils.ai.cast.invalidate();
@@ -74,9 +91,17 @@ const [scene, setScene] = useState<SceneKey>("council");
   });
 
   const talk = trpc.ai.talk.useMutation({
-    onSuccess: async (result) => {
+    onSuccess: async (result, variables) => {
       const turns = (result.turns ?? []) as Array<Record<string, unknown>>;
-      const messages: MessageView[] = turns.map((turn) => ({
+      const messages: MessageView[] = [
+        {
+          role: "player",
+          speakerName: "领主",
+          content: variables.message,
+          source: "system",
+          createdAt: new Date(),
+        },
+        ...turns.map((turn) => ({
         role: "character",
         charKey: String(turn.charKey ?? ""),
         speakerName: String(turn.name ?? turn.charKey ?? "角色"),
@@ -91,7 +116,8 @@ const [scene, setScene] = useState<SceneKey>("council");
           targetCharKey: turn.targetCharKey ?? null,
           suggestedAction: turn.suggestedAction ?? null,
         },
-      }));
+        })),
+      ];
       if (result.narration) {
         messages.push({ role: "narrator", speakerName: "旁白", content: result.narration, source: "system" });
       }
@@ -100,7 +126,14 @@ const [scene, setScene] = useState<SceneKey>("council");
       setInput("");
       if (result.status === "no_present_characters") toast.warning("尚未选择在场角色", { description: result.narration ?? undefined });
       else if (result.status !== "ok") toast.warning("本次回复使用兜底内容", { description: "模型输出未通过格式或内容校验，已由本地规则接管。" });
-      await Promise.all([utils.ai.latest.invalidate(), utils.ai.cast.invalidate(), utils.keep.quests.invalidate()]);
+      await Promise.all([
+        utils.ai.conversation.invalidate({ conversationId: variables.conversationId }),
+        utils.ai.latest.invalidate(),
+        utils.ai.cast.invalidate(),
+        utils.keep.quests.invalidate(),
+      ]);
+      // 查询已刷新为服务端完整记录，清除临时消息，避免随后切换会谈时重复显示。
+      setLiveMessages([]);
     },
     onError: (error) => toast.error("发言失败", { description: error.message }),
   });
@@ -111,6 +144,23 @@ const [scene, setScene] = useState<SceneKey>("council");
       await utils.ai.cast.invalidate();
     },
     onError: (error) => toast.error("操作失败", { description: error.message }),
+  });
+
+  const deleteConversation = trpc.ai.deleteConversation.useMutation({
+    onSuccess: async (_result, variables) => {
+      if (conversationId === variables.conversationId) {
+        setConversationId(null);
+        setLiveMessages([]);
+        setViolations([]);
+      }
+      toast.success("会谈记录已删除");
+      await Promise.all([
+        utils.ai.cast.invalidate(),
+        utils.ai.conversation.invalidate({ conversationId: variables.conversationId }),
+        utils.ai.latest.invalidate(),
+      ]);
+    },
+    onError: (error) => toast.error("删除会谈失败", { description: error.message }),
   });
 
   const characters = useMemo(() => cast.data?.characters ?? [], [cast.data]);
@@ -126,6 +176,7 @@ const [scene, setScene] = useState<SceneKey>("council");
     setScene(conversation.data.scene as SceneKey);
     setViolations([]);
     setLiveMessages([]);
+    setOlderTurnsOpen(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [historyKey]);
 
@@ -145,6 +196,10 @@ const [scene, setScene] = useState<SceneKey>("council");
     }));
     return [...history, ...liveMessages];
   }, [conversation.data?.messages, liveMessages]);
+  const messageTurns = useMemo(() => groupMessagesByTurn(messages), [messages]);
+  const olderTurnCount = Math.max(0, messageTurns.length - RECENT_TURN_LIMIT);
+  const olderMessages = useMemo(() => messageTurns.slice(0, olderTurnCount).flat(), [messageTurns, olderTurnCount]);
+  const recentMessages = useMemo(() => messageTurns.slice(-RECENT_TURN_LIMIT).flat(), [messageTurns]);
 
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -167,6 +222,39 @@ const [scene, setScene] = useState<SceneKey>("council");
   }
 
   const castData = cast.data;
+  const renderMessage = (message: MessageView, index: number, keyPrefix: string) => {
+    const isPlayer = message.role === "player";
+    const isNarrator = message.role === "narrator";
+    const structured = message.structured ?? null;
+    const action = structured ? String(structured.action ?? "") : "";
+    return (
+      <div key={message.id ?? [keyPrefix, index].join("-")} className={cn("flex gap-2", isPlayer && "flex-row-reverse")}>
+        {!isNarrator ? (
+          <Avatar src={message.avatarUrl ?? null} name={message.speakerName} rarity={(message.rarity as "R" | "SR" | "SSR") ?? "R"} size={34} className="mt-0.5 shrink-0" />
+        ) : null}
+        <div className={cn("max-w-[78%] rounded-sm border p-2.5", isPlayer ? "border-[color:var(--gold-600)]/50 bg-[color:var(--ink-800)]/85" : isNarrator ? "border-[color:var(--aether-500)]/40 bg-[color:var(--ink-900)]/75" : "border-[color:var(--ink-500)]/60 bg-[color:var(--ink-800)]/60")}>
+          <div className="mb-1 flex flex-wrap items-center gap-1.5">
+            <span className="text-[0.68rem] text-[color:var(--gold-300)]">{message.speakerName}</span>
+            {message.rarity ? <RarityBadge rarity={message.rarity as "R" | "SR" | "SSR"} /> : null}
+            {!isPlayer && message.source === "fallback" ? <Tag tone="neutral">兜底文本</Tag> : null}
+            {!isPlayer && message.source === "ai" ? <Tag tone="aether">AI</Tag> : null}
+            {action && ACTION_LABEL[action] && action !== "speak" ? <Tag tone="gold">{ACTION_LABEL[action]}</Tag> : null}
+            {structured && Number(structured.bondDelta ?? 0) > 0 ? <Tag tone="good">羁绊 +{Number(structured.bondDelta)}</Tag> : null}
+            <span className="ml-auto text-[0.58rem] text-[color:var(--parchment-muted)]">
+              {message.createdAt ? new Date(message.createdAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }) : ""}
+            </span>
+          </div>
+          <p className="whitespace-pre-wrap text-sm leading-relaxed text-[color:var(--parchment-dim)]">{message.content}</p>
+          {structured && structured.targetCharKey ? (
+            <p className="mt-1 text-[0.62rem] text-[color:var(--aether-300)]">回应：{characters.find((item) => item.charKey === String(structured.targetCharKey))?.name ?? String(structured.targetCharKey)}</p>
+          ) : null}
+          {structured && structured.suggestedAction ? (
+            <p className="mt-1 text-[0.62rem] text-[color:var(--parchment-muted)]">建议行动：{String(structured.suggestedAction)}</p>
+          ) : null}
+        </div>
+      </div>
+    );
+  };
 
   return (
     <PageSection
@@ -233,39 +321,21 @@ const [scene, setScene] = useState<SceneKey>("council");
                     />
                   </div>
                 ) : (
-                  messages.map((message, index) => {
-                    const isPlayer = message.role === "player";
-                    const isNarrator = message.role === "narrator";
-                    const structured = message.structured ?? null;
-                    const action = structured ? String(structured.action ?? "") : "";
-                    return (
-                      <div key={message.id ?? `live-${index}`} className={cn("flex gap-2", isPlayer && "flex-row-reverse")}>
-                        {!isNarrator ? (
-                          <Avatar src={message.avatarUrl ?? null} name={message.speakerName} rarity={(message.rarity as "R" | "SR" | "SSR") ?? "R"} size={34} className="mt-0.5 shrink-0" />
-                        ) : null}
-                        <div className={cn("max-w-[78%] rounded-sm border p-2.5", isPlayer ? "border-[color:var(--gold-600)]/50 bg-[color:var(--ink-800)]/85" : isNarrator ? "border-[color:var(--aether-500)]/40 bg-[color:var(--ink-900)]/75" : "border-[color:var(--ink-500)]/60 bg-[color:var(--ink-800)]/60")}>
-                          <div className="mb-1 flex flex-wrap items-center gap-1.5">
-                            <span className="text-[0.68rem] text-[color:var(--gold-300)]">{message.speakerName}</span>
-                            {message.rarity ? <RarityBadge rarity={message.rarity as "R" | "SR" | "SSR"} /> : null}
-                            {!isPlayer && message.source === "fallback" ? <Tag tone="neutral">兜底文本</Tag> : null}
-                            {!isPlayer && message.source === "ai" ? <Tag tone="aether">AI</Tag> : null}
-                            {action && ACTION_LABEL[action] && action !== "speak" ? <Tag tone="gold">{ACTION_LABEL[action]}</Tag> : null}
-                            {structured && Number(structured.bondDelta ?? 0) > 0 ? <Tag tone="good">羁绊 +{Number(structured.bondDelta)}</Tag> : null}
-                            <span className="ml-auto text-[0.58rem] text-[color:var(--parchment-muted)]">
-                              {message.createdAt ? new Date(message.createdAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }) : ""}
-                            </span>
-                          </div>
-                          <p className="whitespace-pre-wrap text-sm leading-relaxed text-[color:var(--parchment-dim)]">{message.content}</p>
-                          {structured && structured.targetCharKey ? (
-                            <p className="mt-1 text-[0.62rem] text-[color:var(--aether-300)]">回应：{characters.find((item) => item.charKey === String(structured.targetCharKey))?.name ?? String(structured.targetCharKey)}</p>
-                          ) : null}
-                          {structured && structured.suggestedAction ? (
-                            <p className="mt-1 text-[0.62rem] text-[color:var(--parchment-muted)]">建议行动：{String(structured.suggestedAction)}</p>
-                          ) : null}
-                        </div>
-                      </div>
-                    );
-                  })
+                  <>
+                    {olderTurnCount > 0 ? (
+                      <Collapsible open={olderTurnsOpen} onOpenChange={setOlderTurnsOpen}>
+                        <CollapsibleTrigger asChild>
+                          <button className="w-full rounded-sm border border-[color:var(--ink-500)]/50 bg-[color:var(--ink-900)]/80 px-2.5 py-1.5 text-left text-[0.66rem] text-[color:var(--parchment-muted)] hover:border-[color:var(--gold-600)]/60">
+                            {olderTurnsOpen ? "收起" : "展开"}早前 {olderTurnCount} 轮会谈
+                          </button>
+                        </CollapsibleTrigger>
+                        <CollapsibleContent className="space-y-3 border-b border-[color:var(--ink-500)]/35 pb-3 pt-2">
+                          {olderMessages.map((message, index) => renderMessage(message, index, "older"))}
+                        </CollapsibleContent>
+                      </Collapsible>
+                    ) : null}
+                    {recentMessages.map((message, index) => renderMessage(message, index, "recent"))}
+                  </>
                 )}
               </div>
 
@@ -311,25 +381,6 @@ const [scene, setScene] = useState<SceneKey>("council");
             </div>
           </Panel>
 
-          <div className="grid gap-2 sm:grid-cols-2">
-            <Panel className="p-3">
-              <div className="text-caption mb-1.5">互动规则（服务端强制）</div>
-              <ul className="space-y-1 text-[0.68rem] leading-relaxed text-[color:var(--parchment-muted)]">
-                <li>· 只有「在场角色」会被写入提示词；未选中角色不会发言或行动。</li>
-                <li>· 模型必须返回结构化 JSON；角色 ID 逐一校验，未知 ID 的发言直接被拒绝。</li>
-                <li>· 角色身份、阵营与性格由后台配置，AI 无法改写。</li>
-                <li>· 角色可选择发言、沉默、行动或回应其他在场角色。</li>
-                <li>· 无在场角色时，界面不会发起任何 AI 调用。</li>
-              </ul>
-            </Panel>
-            <Panel className="p-3">
-              <div className="text-caption mb-1.5">羁绊与剧情联动</div>
-              <p className="text-[0.68rem] leading-relaxed text-[color:var(--parchment-muted)]">
-                每次有效会谈都会推进「与同伴交谈」类任务并按角色的 bondDelta 增加羁绊经验。角色的当前剧情状态（章节、支线标记、羁绊等级）会一并传给模型，同一个角色在故事前后会有不同的态度与措辞。
-              </p>
-              <AllAgesNote className="mt-2" />
-            </Panel>
-          </div>
         </div>
 
         {/* 侧栏 */}
@@ -428,42 +479,39 @@ const [scene, setScene] = useState<SceneKey>("council");
             ) : (
               <div className="max-h-64 space-y-1.5 overflow-y-auto pr-1">
                 {(castData.conversations ?? []).map((row) => (
-                  <button
-                    key={row.conversationId}
-                    onClick={() => setConversationId(row.conversationId)}
-                    className={cn(
-                      "card-tap w-full rounded-sm border p-2 text-left",
-                      conversationId === row.conversationId ? "border-[color:var(--gold-300)] bg-[color:var(--ink-700)]/70" : "border-[color:var(--ink-500)]/50 bg-[color:var(--ink-800)]/40 hover:border-[color:var(--gold-600)]/60",
-                    )}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="truncate text-xs text-[color:var(--parchment)]">{row.title}</span>
-                      <span className="shrink-0 text-[0.58rem] text-[color:var(--parchment-muted)]">{row.turnCount} 轮</span>
-                    </div>
-                    <div className="mt-0.5 flex items-center gap-1.5 text-[0.58rem] text-[color:var(--parchment-muted)]">
-                      <span>{row.sceneLabel}</span>
-                      <span>· {new Date(row.updatedAt as unknown as string).toLocaleDateString("zh-CN")}</span>
-                      {row.status === "closed" ? <Tag tone="neutral">已结束</Tag> : null}
-                    </div>
-                  </button>
+                  <div key={row.conversationId} className="relative">
+                    <button
+                      onClick={() => setConversationId(row.conversationId)}
+                      className={cn(
+                        "card-tap w-full rounded-sm border p-2 pr-8 text-left",
+                        conversationId === row.conversationId ? "border-[color:var(--gold-300)] bg-[color:var(--ink-700)]/70" : "border-[color:var(--ink-500)]/50 bg-[color:var(--ink-800)]/40 hover:border-[color:var(--gold-600)]/60",
+                      )}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="truncate text-xs text-[color:var(--parchment)]">{row.title}</span>
+                        <span className="shrink-0 text-[0.58rem] text-[color:var(--parchment-muted)]">{row.turnCount} 轮</span>
+                      </div>
+                      <div className="mt-0.5 flex items-center gap-1.5 text-[0.58rem] text-[color:var(--parchment-muted)]">
+                        <span>{row.sceneLabel}</span>
+                        <span>· {new Date(row.updatedAt as unknown as string).toLocaleDateString("zh-CN")}</span>
+                        {row.status === "closed" ? <Tag tone="neutral">已结束</Tag> : null}
+                      </div>
+                    </button>
+                    <button
+                      className="absolute right-1.5 top-1.5 rounded-sm p-1 text-[color:var(--parchment-muted)] hover:bg-[color:var(--blood)]/15 hover:text-[color:var(--blood)]"
+                      aria-label={`删除会谈：${row.title}`}
+                      title="删除会谈"
+                      disabled={deleteConversation.isPending || talk.isPending}
+                      onClick={() => deleteConversation.mutate({ conversationId: row.conversationId })}
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
                 ))}
               </div>
             )}
           </Panel>
 
-          <Panel className="p-3">
-            <div className="text-caption mb-1.5">AI 配置来源</div>
-            <p className="text-[0.68rem] leading-relaxed text-[color:var(--parchment-muted)]">
-              当前使用：<span className="text-[color:var(--gold-300)]">{castData.aiConfigured.name}</span>
-              {castData.aiConfigured.model ? `（${castData.aiConfigured.model}）` : ""}
-              <br />
-              模型、Base URL、密钥与校验策略全部由 GM 后台统一配置，客户端无法覆盖。API 密钥不会下发到浏览器。
-            </p>
-            <p className="mt-2 flex items-center gap-1.5 text-[0.66rem] text-[color:var(--aether-300)]">
-              <AetherRune size={12} />
-              {castData.contentNote}
-            </p>
-          </Panel>
         </div>
       </div>
 

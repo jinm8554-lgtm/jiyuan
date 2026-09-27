@@ -108,7 +108,7 @@ export const metaRouter = router({
       { id: "team", label: "编成远征队", done: roster.length > 0, hint: "队伍最多 4 人，前排承担更多伤害。" },
       { id: "battle", label: "完成第一场战斗", done: false, hint: "在世界地图中选择「灰隼堡外郊」。" },
       { id: "ai", label: "在议事厅与同伴对话", done: false, hint: "AI 只会扮演你选中的在场角色。" },
-      { id: "recruit", label: "进行一次招募", done: (profileRow?.aether ?? 0) < 120, hint: "普通招募消耗星辉，保底进度服务端记录。" },
+      { id: "recruit", label: "进行一次招募", done: (profileRow?.aether ?? 0) < 1800, hint: "普通招募消耗星辉，保底进度服务端记录。" },
     ];
 
     return {

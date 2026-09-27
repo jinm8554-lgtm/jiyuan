@@ -9,11 +9,14 @@ import { trpc } from "@/lib/trpc";
 
 export default function Login() {
   const [, setLocation] = useLocation();
+  const utils = trpc.useUtils();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const login = trpc.auth.localLogin.useMutation({
-    onSuccess: (user) => {
+    onSuccess: async (user) => {
+      // 登录响应会设置 Cookie；先同步 auth.me 缓存再切到受保护页面。
+      await utils.auth.me.invalidate();
       setLocation(user.role === "admin" ? "/gm" : "/keep");
     },
   });

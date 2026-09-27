@@ -199,6 +199,9 @@ export default function Battle() {
         setDroppedItems(finished.settlement.droppedItems ?? []);
       }
       if (finished.reserveAvailable && finished.reserveTeam) setReserveOffer({ name: finished.reserveTeam.name, memberCount: finished.reserveTeam.memberCount });
+      if (!(result.state as StateView).finished) {
+        toast.info("自动推演已暂停", { description: "双方仍有存活单位，可继续指挥或再次自动推演。" });
+      }
       void utils.battle.recent.invalidate();
       void utils.keep.home.invalidate();
       void utils.keep.resources.invalidate();
@@ -232,6 +235,16 @@ export default function Battle() {
   });
 
   const recent = trpc.battle.recent.useQuery();
+  const mapNode = useMemo(
+    () => worldMap.data?.regions.flatMap((region) => region.nodes).find((item) => item.nodeKey === nodeKey),
+    [nodeKey, worldMap.data],
+  );
+
+  useEffect(() => {
+    if (!detail.data?.state || state) return;
+    setState(detail.data.state as StateView);
+    setEvents((detail.data.log ?? []) as EventView[]);
+  }, [detail.data?.log, detail.data?.state, state]);
 
   useEffect(() => {
     if (state?.result !== "won" || detail.data?.status !== "won" || !detail.data.rewards) return;
@@ -242,11 +255,16 @@ export default function Battle() {
 
   // 进入页面自动开战一次
   useEffect(() => {
-    if (!nodeKey || startedRef.current) return;
+    if (!nodeKey || !mapNode?.unlocked || recent.isLoading || startedRef.current) return;
     startedRef.current = true;
+    const activeBattle = recent.data?.find((row) => row.nodeKey === nodeKey && row.status === "active");
+    if (activeBattle) {
+      setBattleId(activeBattle.battleId);
+      return;
+    }
     start.mutate({ nodeKey });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nodeKey]);
+  }, [mapNode?.unlocked, nodeKey, recent.data, recent.isLoading]);
 
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
@@ -270,7 +288,6 @@ export default function Battle() {
     );
   }
 
-  const mapNode = worldMap.data?.regions.flatMap((region) => region.nodes).find((item) => item.nodeKey === nodeKey);
   if (mapNode && !mapNode.unlocked && !state && !start.isPending && !start.isError) {
     return (
       <PageSection title="远征">
@@ -284,7 +301,7 @@ export default function Battle() {
       title={`远征 · ${node.data?.name ?? nodeKey}`}
       eyebrow={node.data ? `${node.data.nodeTypeLabel} · LV.${node.data.levelMin}-${node.data.levelMax} · 体力 ${node.data.staminaCost}` : "读取节点信息…"}
       actions={
-        <div className="flex gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           <Link href="/world">
             <Button size="sm" variant="outline" className="border-[color:var(--ink-500)]/70 text-[color:var(--parchment-dim)]">
               <ArrowLeft size={13} className="mr-1" />
@@ -293,9 +310,9 @@ export default function Battle() {
           </Link>
           {state && !state.finished ? (
             <>
-              <Button data-testid="battle-auto-resolve" size="sm" className="bg-[color:var(--aether-500)] px-4 font-semibold text-[color:var(--ink-950)] shadow-[0_0_16px_color-mix(in_srgb,var(--aether-500)_35%,transparent)] hover:bg-[color:var(--aether-400)]" onClick={() => auto.mutate({ battleId: battleId! })} disabled={auto.isPending || !battleId}>
-                <Play size={14} className="mr-1.5" />
-                战斗
+              <Button data-testid="battle-auto-resolve" className="btn-gold h-10 min-w-[8.5rem] border-transparent px-5 text-sm shadow-[0_0_24px_color-mix(in_srgb,var(--gold-400)_42%,transparent)] ring-1 ring-[color:var(--gold-300)]/60" onClick={() => auto.mutate({ battleId: battleId! })} disabled={auto.isPending || !battleId}>
+                <Play size={15} className="mr-1 fill-current" />
+                {auto.isPending ? "战斗推演中…" : "自动战斗"}
               </Button>
               <Button size="sm" variant="outline" className="border-[color:var(--blood)]/50 text-[color:var(--blood)]" onClick={() => flee.mutate({ battleId: battleId! })} disabled={flee.isPending || !battleId}>
                 <Flag size={13} className="mr-1" />
@@ -355,7 +372,7 @@ export default function Battle() {
                           className={cn(
                             "relative rounded-sm border p-2 text-left transition-colors",
                             unit.alive ? "border-[color:var(--blood)]/50 bg-[color:var(--ink-950)]/70" : "border-[color:var(--ink-500)]/40 bg-[color:var(--ink-950)]/40 opacity-45",
-                            targetable && "hover:border-[color:var(--gold-300)] hover:bg-[color:var(--ink-800)]/80",
+                            targetable && "cursor-crosshair border-[color:var(--gold-300)] ring-2 ring-[color:var(--gold-300)]/60 shadow-[0_0_18px_color-mix(in_srgb,var(--gold-400)_32%,transparent)] hover:bg-[color:var(--ink-800)]/90",
                             pendingTarget === unit.id && "border-[color:var(--gold-300)]",
                           )}
                         >
@@ -417,7 +434,7 @@ export default function Battle() {
                             "relative rounded-sm border p-2 text-left transition-colors",
                             !unit.alive ? "border-[color:var(--ink-500)]/40 bg-[color:var(--ink-950)]/40 opacity-45" : "border-[color:var(--gold-600)]/60 bg-[color:var(--ink-950)]/70",
                             isAwaiting && "ring-2 ring-[color:var(--gold-300)]/70",
-                            targetable && "hover:border-[color:var(--gold-300)]",
+                            targetable && "cursor-crosshair border-[color:var(--gold-300)] ring-2 ring-[color:var(--gold-300)]/60 shadow-[0_0_18px_color-mix(in_srgb,var(--gold-400)_28%,transparent)] hover:bg-[color:var(--ink-800)]/90",
                           )}
                         >
                           {floating[unit.id] ? (
@@ -551,17 +568,21 @@ export default function Battle() {
                             }
                           }}
                           className={cn(
-                            "card-tap rounded-sm border p-2.5 text-left",
-                            selectedSkill === skill.skillKey ? "border-[color:var(--gold-300)] bg-[color:var(--ink-700)]/70" : "border-[color:var(--ink-500)]/60 bg-[color:var(--ink-800)]/50",
-                            (onCooldown || notEnoughEnergy) && "opacity-45",
+                            "card-tap min-h-20 rounded-sm border p-3 text-left transition-all",
+                            selectedSkill === skill.skillKey
+                              ? "border-[color:var(--gold-300)] bg-[color:var(--ink-700)]/90 ring-2 ring-[color:var(--gold-300)]/55 shadow-[0_0_22px_color-mix(in_srgb,var(--gold-400)_30%,transparent)]"
+                              : "border-[color:var(--gold-600)]/55 bg-gradient-to-br from-[color:var(--ink-800)]/85 to-[color:var(--ink-900)]/70 hover:-translate-y-0.5 hover:border-[color:var(--gold-300)] hover:shadow-[0_0_18px_color-mix(in_srgb,var(--gold-400)_22%,transparent)]",
+                            (onCooldown || notEnoughEnergy) && "cursor-not-allowed opacity-40 grayscale",
                           )}
                         >
                           <div className="flex items-center justify-between gap-2">
-                            <span className="flex items-center gap-1.5 truncate text-sm text-[color:var(--parchment)]">
-                              <ElementIcon size={13} style={{ color: ELEMENT_COLOR[skill.element] }} />
+                            <span className="flex items-center gap-2 truncate text-sm font-semibold text-[color:var(--parchment)]">
+                              <span className="grid size-7 shrink-0 place-items-center rounded-full border border-[color:var(--gold-600)]/60 bg-[color:var(--ink-950)]/70">
+                                <ElementIcon size={14} style={{ color: ELEMENT_COLOR[skill.element] }} />
+                              </span>
                               {skill.name}
                             </span>
-                            <span className="text-[0.62rem] text-[color:var(--parchment-muted)]">LV.{skill.level}</span>
+                            <span className={cn("rounded-sm px-1.5 py-0.5 text-[0.62rem]", selectedSkill === skill.skillKey ? "bg-[color:var(--gold-400)] text-[color:var(--ink-950)]" : "text-[color:var(--parchment-muted)]")}>{selectedSkill === skill.skillKey ? "已选择" : `LV.${skill.level}`}</span>
                           </div>
                           <div className="mt-0.5 text-[0.62rem] text-[color:var(--parchment-muted)]">
                             {skill.kind === "passive" ? "被动" : "主动"} · {
@@ -579,17 +600,17 @@ export default function Battle() {
                         setSelectedSkill(null);
                         act.mutate({ battleId: battleId!, unitId: awaiting.id, actionKey: "sk_defend" });
                       }}
-                      className="card-tap rounded-sm border border-[color:var(--frost)]/50 bg-[color:var(--ink-800)]/50 p-2.5 text-left"
+                      className="card-tap min-h-20 rounded-sm border border-[color:var(--frost)]/70 bg-gradient-to-br from-[color:var(--ink-800)]/85 to-[color:var(--ink-900)]/70 p-3 text-left transition-all hover:-translate-y-0.5 hover:border-[color:var(--frost)] hover:shadow-[0_0_18px_color-mix(in_srgb,var(--frost)_20%,transparent)]"
                     >
-                      <div className="flex items-center gap-1.5 text-sm text-[color:var(--parchment)]">
-                        <Shield size={13} className="text-[color:var(--frost)]" />
+                      <div className="flex items-center gap-2 text-sm font-semibold text-[color:var(--parchment)]">
+                        <span className="grid size-7 place-items-center rounded-full border border-[color:var(--frost)]/60 bg-[color:var(--ink-950)]/70"><Shield size={14} className="text-[color:var(--frost)]" /></span>
                         防御
                       </div>
                       <div className="mt-0.5 text-[0.62rem] text-[color:var(--parchment-muted)]">后手减伤并获得护盾，可等待技能冷却</div>
                     </button>
                   </div>
                   {selectedSkill ? (
-                    <p className="mt-2 text-xs text-[color:var(--gold-300)]">请在上方点击一个目标释放技能（再次点击技能可切换）。</p>
+                    <p className="mt-3 rounded-sm border border-[color:var(--gold-300)]/70 bg-[color:var(--gold-600)]/15 px-3 py-2 text-sm font-semibold text-[color:var(--gold-300)] shadow-[0_0_18px_color-mix(in_srgb,var(--gold-400)_18%,transparent)]">技能已选择——请点击上方高亮目标释放。</p>
                   ) : null}
                 </>
               ) : (

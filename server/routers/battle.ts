@@ -1,7 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
-import { battles, gameProfiles, nodeStates, teams } from "../../drizzle/schema";
+import { battles, gameProfiles, nodeStates, regionStates, teams } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { NODE_BY_KEY, NODE_SEEDS } from "../game/data/world";
 import { SKILL_BY_KEY } from "../game/data/skills";
@@ -167,10 +167,6 @@ export const battleRouter = router({
     const [profileRow] = await db.select().from(gameProfiles).where(eq(gameProfiles.id, profile.id)).limit(1);
     if (!profileRow) throw new TRPCError({ code: "NOT_FOUND", message: "档案不存在" });
 
-    if (profileRow.stamina < node.staminaCost) {
-      throw new TRPCError({ code: "BAD_REQUEST", message: `体力不足，本次远征需要 ${node.staminaCost} 点` });
-    }
-
     // 解锁校验（服务端权威）
     await syncUnlocks(profile.id);
     const [nodeState] = await db
@@ -178,9 +174,21 @@ export const battleRouter = router({
       .from(nodeStates)
       .where(and(eq(nodeStates.profileId, profile.id), eq(nodeStates.nodeKey, input.nodeKey)))
       .limit(1);
+    const [regionState] = await db
+      .select()
+      .from(regionStates)
+      .where(and(eq(regionStates.profileId, profile.id), eq(regionStates.regionKey, node.regionKey)))
+      .limit(1);
+    if (!regionState?.unlocked) {
+      throw new TRPCError({ code: "FORBIDDEN", message: "该地区尚未解锁" });
+    }
     // 没有节点状态行等同于尚未解锁，禁止通过直接 URL 绕过地图按钮。
     if (!nodeState || nodeState.status === "locked") {
       throw new TRPCError({ code: "FORBIDDEN", message: "该节点尚未解锁" });
+    }
+
+    if (profileRow.stamina < node.staminaCost) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: `体力不足，本次远征需要 ${node.staminaCost} 点` });
     }
 
     const { allies, enemies, teamId } = await buildUnits(profile.id, node);
@@ -293,7 +301,7 @@ export const battleRouter = router({
       return { ok: true, events, state: serializeState(state), finished };
     }),
 
-  /** 半自动战斗：由服务端推演至结束 */
+  /** 半自动战斗：由服务端推演，达到单次回合预算时保留进行中状态 */
   auto: protectedProcedure.input(z.object({ battleId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
     const profile = await resolveProfile(ctx);
     const db = await getDb();

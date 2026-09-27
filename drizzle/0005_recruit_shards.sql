@@ -1,0 +1,1 @@
+ALTER TABLE `gameProfiles` ADD `recruitShards` int DEFAULT 0 NOT NULL;

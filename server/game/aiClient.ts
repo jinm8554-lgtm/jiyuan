@@ -175,7 +175,10 @@ export async function generateCharacterTurns(params: GenerateParams): Promise<Ai
   let errorMessage: string | undefined;
 
   try {
-    if (config.baseUrl && config.apiKey && !config.useBuiltInGateway) {
+    if (!config.useBuiltInGateway) {
+      if (!config.baseUrl || !config.apiKey) {
+        throw new Error("外部 AI 配置缺少 Base URL 或 API Key");
+      }
       const result = await callOpenAiCompatible(config, withWorld, userPrompt);
       content = result.content;
       httpStatus = result.httpStatus;
@@ -267,7 +270,10 @@ const WORLD_CONTEXT_TEXT = [
 
 /** 拉取模型列表（GM 后台「模型拉取」） */
 export async function fetchModels(config: AiRuntimeConfig): Promise<{ models: Array<{ id: string; ownedBy?: string }>; source: "config" | "builtin" }> {
-  if (config.baseUrl && config.apiKey && !config.useBuiltInGateway) {
+  if (!config.useBuiltInGateway) {
+    if (!config.baseUrl || !config.apiKey) {
+      throw new Error("外部 AI 配置缺少 Base URL 或 API Key");
+    }
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 20_000);
     try {

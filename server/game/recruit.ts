@@ -252,10 +252,12 @@ export function totalCost(pool: PoolConfig, count: number): number {
 export function pityProgress(pool: PoolConfig, pity: PityState) {
   const hardPity = (pool.pity?.hardPity as number) ?? 80;
   const softStart = (pool.pity?.softStart as number) ?? 60;
+  const pullsSinceSSR = Math.max(0, Math.min(hardPity, Number(pity.pullsSinceSSR) || 0));
   return {
     totalPulls: pity.totalPulls,
-    untilHardPity: Math.max(0, hardPity - pity.pullsSinceSSR),
-    softPityActive: pity.pullsSinceSSR >= softStart,
+    pullsSinceSSR,
+    untilHardPity: Math.max(0, hardPity - pullsSinceSSR),
+    softPityActive: pullsSinceSSR >= softStart,
     hardPity,
     softStart,
   };

@@ -6,7 +6,7 @@ import { getDb } from "../db";
 import { RARITY_LABEL, round } from "../game/formulas";
 import { advanceQuestProgress } from "../game/progress";
 import { drawMany, isPoolOpen, normalizeRates, pityProgress, totalCost, type PityState, type PoolConfig } from "../game/recruit";
-import { grantCharacter, grantEquipment } from "../game/service";
+import { grantCharacter, grantEquipment, spendRecruitShards } from "../game/service";
 import { protectedProcedure, router } from "../_core/trpc";
 import { resolveProfile } from "./_shared";
 
@@ -272,7 +272,6 @@ export const recruitRouter = router({
         })
         .where(and(eq(profilePity.profileId, profile.id), eq(profilePity.poolKey, input.poolKey)));
 
-      // 酒馆 6 级后每 12 小时一次免费单抽的机会由前端展示，服务端此处校验并赠予小额星辉
       const profileRow = (await db.select().from(gameProfiles).where(eq(gameProfiles.id, profile.id)).limit(1))[0];
       const highRarityCount = output.filter((item) => item.rarity !== "R").length;
 
@@ -283,7 +282,7 @@ export const recruitRouter = router({
         currency: config.currency,
         pity: pityProgress(config, pity),
         resources: profileRow
-          ? { gold: profileRow.gold, aether: profileRow.aether, food: profileRow.food, wood: profileRow.wood, iron: profileRow.iron, renown: profileRow.renown }
+          ? { gold: profileRow.gold, aether: profileRow.aether, recruitShards: profileRow.recruitShards, food: profileRow.food, wood: profileRow.wood, iron: profileRow.iron, renown: profileRow.renown }
           : null,
         highlights: {
           hasSSR: output.some((item) => item.rarity === "SSR"),
@@ -308,12 +307,11 @@ export const recruitRouter = router({
 
       const costMap = { R: 40, SR: 120, SSR: 320 } as const;
       const cost = costMap[equipConfig.rarity as Rarity];
-      const { spendResources } = await import("../game/service");
-      const spend = await spendResources(profile.id, { aether: cost });
-      if (!spend.ok) throw new TRPCError({ code: "BAD_REQUEST", message: `星辉不足，需要 ${cost}` });
+      const spend = await spendRecruitShards(profile.id, cost);
+      if (!spend.ok) throw new TRPCError({ code: "BAD_REQUEST", message: `星辉信物不足，需要 ${cost}，当前 ${spend.balance}` });
 
       await grantEquipment(profile.id, input.equipKey, "exchange");
-      return { ok: true, cost, equipKey: input.equipKey, name: equipConfig.name };
+      return { ok: true, cost, balance: spend.balance, equipKey: input.equipKey, name: equipConfig.name };
     }),
 
   /** 兑换商店（用星辉信物可换取的装备列表） */

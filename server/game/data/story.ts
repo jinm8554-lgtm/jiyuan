@@ -18,7 +18,23 @@ export type StorySeed = {
   unlockFlags: string[];
 };
 
-const s = (v: StorySeed) => v;
+/** 剧情星辉是一次性奖励，保留分支差异但缩减为新版经济可承受的数值。 */
+const s = (v: StorySeed): StorySeed => ({
+  ...v,
+  choices: v.choices.map((choice) => {
+    const rewards = choice.rewards;
+    if (!rewards || typeof rewards !== "object") return choice;
+    const aether = Number((rewards as Record<string, unknown>).aether ?? 0);
+    if (!Number.isFinite(aether) || aether === 0) return choice;
+    return {
+      ...choice,
+      rewards: {
+        ...(rewards as Record<string, unknown>),
+        aether: Math.sign(aether) * Math.max(1, Math.round(Math.abs(aether) / 5)),
+      },
+    };
+  }),
+});
 
 export const STORY_SEEDS: StorySeed[] = [
   s({

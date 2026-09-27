@@ -3,7 +3,7 @@
  * Base URL / API Key / 模型拉取与选择 / 调用测试 / 调用记录
  * 安全约定：密钥仅以掩码返回；客户端无法覆盖任何模型设置。
  */
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { toast } from "sonner";
 import { Activity, Check, KeyRound, RefreshCw, Save, ShieldAlert, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -58,16 +58,16 @@ type Editor = {
 function emptyEditor(): Editor {
   return {
     name: "默认 AI 配置",
-    baseUrl: "https://api.openai.com/v1",
+    baseUrl: "",
     apiKey: "",
     model: "",
     temperature: 80,
     maxTokens: 900,
     systemPrompt: "",
     jsonStrict: true,
-    useBuiltInGateway: true,
+    useBuiltInGateway: false,
     enabled: true,
-    isActive: false,
+    isActive: true,
   };
 }
 
@@ -77,12 +77,32 @@ export default function GMAi() {
   const [editor, setEditor] = useState<Editor | null>(null);
   const [testResult, setTestResult] = useState<null | { ok: boolean; message: string; output?: unknown; models?: string[] }>(null);
   const [modelDialog, setModelDialog] = useState<number | null>(null);
+  const [modelCandidates, setModelCandidates] = useState<string[]>([]);
+  const [selectedModel, setSelectedModel] = useState<string | null>(null);
+  const fetchAfterSave = useRef(false);
+
+  const fetchModels = trpc.admin.fetchAiModels.useMutation({
+    onSuccess: async (result, variables) => {
+      if (result.ok) toast.success(result.message);
+      else toast.warning("模型拉取未成功", { description: result.message });
+      const candidates = result.models.map((model) => model.id);
+      setModelCandidates(candidates);
+      const current = (configs.data as AiConfigRow[] | undefined)?.find((row) => row.id === variables.id)?.model ?? null;
+      setSelectedModel(current && candidates.includes(current) ? current : candidates[0] ?? null);
+      setModelDialog(candidates.length > 0 ? variables.id : null);
+      await utils.admin.listAiConfigs.invalidate();
+    },
+    onError: (error) => toast.error("拉取失败", { description: error.message }),
+  });
 
   const save = trpc.admin.saveAiConfig.useMutation({
-    onSuccess: async () => {
+    onSuccess: async (result) => {
       toast.success("AI 配置已保存（密钥加密存储）");
+      const shouldFetchModels = fetchAfterSave.current;
+      fetchAfterSave.current = false;
       setEditor(null);
       await Promise.all([utils.admin.listAiConfigs.invalidate(), utils.admin.overview.invalidate()]);
+      if (shouldFetchModels) fetchModels.mutate({ id: result.id });
     },
     onError: (error) => toast.error("保存失败", { description: error.message }),
   });
@@ -103,14 +123,15 @@ export default function GMAi() {
     onError: (error) => toast.error("删除失败", { description: error.message }),
   });
 
-  const fetchModels = trpc.admin.fetchAiModels.useMutation({
+  const selectModel = trpc.admin.selectAiModel.useMutation({
     onSuccess: async (result) => {
-      if (result.ok) toast.success(result.message);
-      else toast.warning("模型拉取未成功", { description: result.message });
-      setModelDialog(result.models.length > 0 ? (editor?.id ?? null) : null);
-      await utils.admin.listAiConfigs.invalidate();
+      toast.success("已选择模型：" + result.model);
+      setModelDialog(null);
+      setModelCandidates([]);
+      setSelectedModel(null);
+      await Promise.all([utils.admin.listAiConfigs.invalidate(), utils.admin.overview.invalidate()]);
     },
-    onError: (error) => toast.error("拉取失败", { description: error.message }),
+    onError: (error) => toast.error("选择模型失败", { description: error.message }),
   });
 
   const test = trpc.admin.testAiConfig.useMutation({
@@ -126,6 +147,25 @@ export default function GMAi() {
   const logs = trpc.admin.aiLogs.useQuery({ limit: 50 });
   const [onlyViolations, setOnlyViolations] = useState(false);
   const filteredLogs = trpc.admin.aiLogs.useQuery({ limit: 100, onlyViolations });
+
+  const saveEditor = (andFetchModels = false) => {
+    if (!editor) return;
+    fetchAfterSave.current = andFetchModels;
+    save.mutate({
+      id: editor.id,
+      name: editor.name,
+      baseUrl: editor.baseUrl,
+      apiKey: editor.apiKey ? editor.apiKey : undefined,
+      model: editor.model,
+      temperature: editor.temperature,
+      maxTokens: editor.maxTokens,
+      systemPrompt: editor.systemPrompt || null,
+      jsonStrict: editor.jsonStrict,
+      useBuiltInGateway: editor.useBuiltInGateway,
+      enabled: editor.enabled,
+      isActive: editor.isActive,
+    });
+  };
 
   return (
     <GMShell
@@ -311,7 +351,7 @@ export default function GMAi() {
           <DialogHeader>
             <DialogTitle className="text-display text-[color:var(--parchment)]">{editor?.id ? "编辑 AI 配置" : "新建 AI 配置"}</DialogTitle>
             <DialogDescription className="text-[color:var(--parchment-muted)]">
-              留空密钥表示「保留现有密钥」。启用内置网关时无需自备 Base URL 与密钥。
+              外部接口请填写 Base URL 与 API Key；保存后可直接拉取并确认模型。内置网关开启时会使用平台模型，但仍可预先填写外部接口信息。
             </DialogDescription>
           </DialogHeader>
           {editor ? (
@@ -327,11 +367,11 @@ export default function GMAi() {
                 </div>
                 <div className="sm:col-span-2">
                   <Label className="text-[0.68rem] text-[color:var(--parchment-muted)]">Base URL（OpenAI 兼容，需包含 /v1）</Label>
-                  <Input value={editor.baseUrl} disabled={editor.useBuiltInGateway} onChange={(event) => setEditor({ ...editor, baseUrl: event.target.value })} placeholder="https://api.example.com/v1" className="mt-1 h-8 border-[color:var(--ink-500)]/70 bg-[color:var(--ink-800)]/70 text-xs text-[color:var(--parchment)] disabled:opacity-50" />
+                  <Input value={editor.baseUrl} onChange={(event) => setEditor({ ...editor, baseUrl: event.target.value })} placeholder="https://api.example.com/v1" className="mt-1 h-8 border-[color:var(--ink-500)]/70 bg-[color:var(--ink-800)]/70 text-xs text-[color:var(--parchment)]" />
                 </div>
                 <div className="sm:col-span-2">
-                  <Label className="text-[0.68rem] text-[color:var(--parchment-muted)]">API Key（{editor.id ? "留空表示不修改" : "内置网关时可留空"}）</Label>
-                  <Input type="password" value={editor.apiKey} disabled={editor.useBuiltInGateway} onChange={(event) => setEditor({ ...editor, apiKey: event.target.value })} placeholder="sk-…" className="mt-1 h-8 border-[color:var(--ink-500)]/70 bg-[color:var(--ink-800)]/70 text-xs text-[color:var(--parchment)] disabled:opacity-50" />
+                  <Label className="text-[0.68rem] text-[color:var(--parchment-muted)]">API Key（{editor.id ? "留空表示不修改" : "外部接口必填"}）</Label>
+                  <Input type="password" value={editor.apiKey} onChange={(event) => setEditor({ ...editor, apiKey: event.target.value })} placeholder="sk-…" className="mt-1 h-8 border-[color:var(--ink-500)]/70 bg-[color:var(--ink-800)]/70 text-xs text-[color:var(--parchment)]" />
                 </div>
                 <div>
                   <Label className="text-[0.68rem] text-[color:var(--parchment-muted)]">温度（0-200，100 = 1.0）</Label>
@@ -350,7 +390,7 @@ export default function GMAi() {
 
               <div className="grid gap-3 sm:grid-cols-2">
                 {([
-                  ["useBuiltInGateway", "使用平台内置网关"],
+                  ["useBuiltInGateway", "使用平台内置网关（地址与密钥仍会保留）"],
                   ["jsonStrict", "严格 JSON 输出（Schema 校验）"],
                   ["enabled", "启用该配置"],
                   ["isActive", "设为当前使用的配置"],
@@ -363,28 +403,21 @@ export default function GMAi() {
               </div>
             </div>
           ) : null}
-          <div className="flex justify-end gap-2">
+          <div className="flex flex-wrap justify-end gap-2">
             <Button variant="ghost" className="text-[color:var(--parchment-muted)]" onClick={() => setEditor(null)}>取消</Button>
+            <Button
+              variant="outline"
+              className="border-[color:var(--aether-500)]/50 text-[color:var(--aether-300)]"
+              disabled={save.isPending || !editor?.name}
+              onClick={() => saveEditor(true)}
+            >
+              <RefreshCw size={13} className="mr-1" />
+              保存并拉取模型
+            </Button>
             <Button
               className="btn-gold border-transparent text-[color:var(--ink-950)]"
               disabled={save.isPending || !editor?.name}
-              onClick={() => {
-                if (!editor) return;
-                save.mutate({
-                  id: editor.id,
-                  name: editor.name,
-                  baseUrl: editor.baseUrl,
-                  apiKey: editor.apiKey ? editor.apiKey : undefined,
-                  model: editor.model,
-                  temperature: editor.temperature,
-                  maxTokens: editor.maxTokens,
-                  systemPrompt: editor.systemPrompt || null,
-                  jsonStrict: editor.jsonStrict,
-                  useBuiltInGateway: editor.useBuiltInGateway,
-                  enabled: editor.enabled,
-                  isActive: editor.isActive,
-                });
-              }}
+              onClick={() => saveEditor()}
             >
               <Save size={13} className="mr-1" />
               {save.isPending ? "保存中…" : "保存配置"}
@@ -394,43 +427,45 @@ export default function GMAi() {
       </Dialog>
 
       {/* 模型选择 */}
-      <Dialog open={Boolean(modelDialog)} onOpenChange={(open) => { if (!open) setModelDialog(null); }}>
+      <Dialog open={Boolean(modelDialog)} onOpenChange={(open) => { if (!open) { setModelDialog(null); setModelCandidates([]); setSelectedModel(null); } }}>
         <DialogContent className="max-h-[80vh] overflow-y-auto border-[color:var(--gold-600)]/50 bg-[color:var(--ink-900)] text-[color:var(--parchment)] sm:max-w-lg">
           <DialogHeader>
             <DialogTitle className="text-display text-[color:var(--parchment)]">可用模型</DialogTitle>
-            <DialogDescription className="text-[color:var(--parchment-muted)]">点击模型即可设为该配置的默认模型。</DialogDescription>
+            <DialogDescription className="text-[color:var(--parchment-muted)]">选择一个模型后，点击「确认选择」才会写入当前配置。</DialogDescription>
           </DialogHeader>
-          {(configs.data as AiConfigRow[] | undefined)?.find((row) => row.id === modelDialog)?.models.length ? (
+          {modelCandidates.length ? (
             <div className="space-y-1">
-              {(configs.data as AiConfigRow[]).find((row) => row.id === modelDialog)?.models.map((model) => (
+              {modelCandidates.map((model) => (
                 <button
-                  key={model.modelId}
+                  key={model}
                   className={cn(
                     "card-tap flex w-full items-center justify-between rounded-sm border px-2.5 py-1.5 text-left text-xs",
-                    model.isDefault ? "border-[color:var(--gold-300)] bg-[color:var(--ink-700)]/70 text-[color:var(--gold-300)]" : "border-[color:var(--ink-500)]/50 text-[color:var(--parchment-dim)]",
+                    selectedModel === model ? "border-[color:var(--gold-300)] bg-[color:var(--ink-700)]/70 text-[color:var(--gold-300)]" : "border-[color:var(--ink-500)]/50 text-[color:var(--parchment-dim)]",
                   )}
-                  onClick={() => {
-                    const row = (configs.data as AiConfigRow[]).find((item) => item.id === modelDialog);
-                    if (!row) return;
-                    save.mutate({
-                      id: row.id,
-                      name: row.name,
-                      model: model.modelId,
-                      temperature: row.temperature,
-                      maxTokens: row.maxTokens,
-                      jsonStrict: row.jsonStrict,
-                      useBuiltInGateway: row.useBuiltInGateway,
-                    });
-                  }}
+                  onClick={() => setSelectedModel(model)}
                 >
-                  <span className="min-w-0 truncate">{model.modelId}</span>
-                  {model.isDefault ? <Check size={12} /> : null}
+                  <span className="min-w-0 truncate">{model}</span>
+                  {selectedModel === model ? <Check size={12} /> : null}
                 </button>
               ))}
             </div>
           ) : (
             <EmptyState title="没有可选模型" hint="请先点击「拉取模型」，或手动在配置中填写模型标识。" />
           )}
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" className="text-[color:var(--parchment-muted)]" onClick={() => setModelDialog(null)}>取消</Button>
+            <Button
+              className="btn-gold border-transparent text-[color:var(--ink-950)]"
+              disabled={!modelDialog || !selectedModel || selectModel.isPending}
+              onClick={() => {
+                if (!modelDialog || !selectedModel) return;
+                selectModel.mutate({ configId: modelDialog, modelId: selectedModel });
+              }}
+            >
+              <Check size={13} className="mr-1" />
+              {selectModel.isPending ? "确认中…" : "确认选择"}
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
 

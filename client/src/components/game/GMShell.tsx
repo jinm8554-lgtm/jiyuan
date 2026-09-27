@@ -6,7 +6,6 @@ import { useEffect, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { AlertTriangle, ArrowLeft, BookOpen, Compass, Cpu, Database, Layers, Loader2, Menu, Package, ScrollText, ShieldCheck, Users, X } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { startLogin } from "@/const";
 import { Button } from "@/components/ui/button";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
@@ -27,11 +26,16 @@ export const GM_NAV = [
 
 export function GMShell({ children, title, eyebrow, actions }: { children: React.ReactNode; title: string; eyebrow?: string; actions?: React.ReactNode }) {
   const { user, loading, isAuthenticated, logout } = useAuth();
-  const [location] = useLocation();
+  const [location, setLocation] = useLocation();
   const [navOpen, setNavOpen] = useState(false);
   const overview = trpc.admin.overview.useQuery(undefined, { enabled: Boolean(isAuthenticated && user?.role === "admin"), refetchInterval: 120_000 });
 
   useEffect(() => setNavOpen(false), [location]);
+
+  // 后台退出或会话失效时直接回到根登录页，不短暂显示访问限制页。
+  useEffect(() => {
+    if (!loading && !isAuthenticated) setLocation("/", { replace: true });
+  }, [isAuthenticated, loading, setLocation]);
 
   if (loading) {
     return (
@@ -42,17 +46,7 @@ export function GMShell({ children, title, eyebrow, actions }: { children: React
   }
 
   if (!isAuthenticated) {
-    return (
-      <div className="grid min-h-screen place-items-center px-4">
-        <Panel gold className="max-w-md p-6 text-center">
-          <h1 className="text-display text-lg text-[color:var(--parchment)]">需要登录</h1>
-          <p className="mt-2 text-sm text-[color:var(--parchment-muted)]">管理后台仅对管理员开放。</p>
-          <Button className="btn-gold mt-4 w-full border-transparent text-[color:var(--ink-950)]" onClick={() => startLogin()}>
-            登录
-          </Button>
-        </Panel>
-      </div>
-    );
+    return null;
   }
 
   if (user?.role !== "admin") {

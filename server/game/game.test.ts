@@ -20,13 +20,13 @@ import {
   statsAtLevel,
   MAX_LEVEL_BY_ASCENSION,
 } from "./formulas";
-import { drawMany, effectiveRates, isPoolOpen, mulberry32, normalizeRates, rollRarity, totalCost, type PoolConfig, type PityState } from "./recruit";
+import { drawMany, effectiveRates, isPoolOpen, mulberry32, normalizeRates, pityProgress, rollRarity, totalCost, type PoolConfig, type PityState } from "./recruit";
 import { autoResolve, checkBattleEnd, computeRewards, createRng, executeAction, startBattle, type BattleUnitInput } from "./battle";
 import { AI_OUTPUT_SCHEMA, buildSystemPrompt, buildUserPrompt, extractJson, fallbackTurns, validateAiOutput } from "./ai";
 import { encryptSecret, decryptSecret, maskApiKey } from "./aiClient";
 import { verifySnapshot } from "./backup";
 import { BUILDING_SEEDS, BUILDING_BY_KEY } from "./data/buildings";
-import { QUEST_SEEDS } from "./data/quests";
+import { POOL_SEEDS, QUEST_SEEDS } from "./data/quests";
 import { STORY_SEEDS } from "./data/story";
 
 /* ============================ 数值公式 ============================ */
@@ -169,6 +169,14 @@ const basePool: PoolConfig = {
 };
 
 describe("招募：概率 / 保底 / 重复转化", () => {
+  it("新版招募成本与新档案硬保底预算一致", () => {
+    const costs = Object.fromEntries(POOL_SEEDS.map((pool) => [pool.poolKey, [pool.costSingle, pool.costTen]]));
+    expect(costs.pool_border_road).toEqual([10, 100]);
+    expect(costs.pool_old_standard).toEqual([30, 300]);
+    expect(costs.pool_song_of_forest).toEqual([20, 200]);
+    expect(60 * (costs.pool_old_standard?.[0] ?? 0)).toBe(1800);
+  });
+
   it("概率归一化后总和为 1，非法输入有兜底", () => {
     const rates = normalizeRates(basePool.rates);
     expect(rates.SSR + rates.SR + rates.R).toBeCloseTo(1, 6);
@@ -214,6 +222,18 @@ describe("招募：概率 / 保底 / 重复转化", () => {
     });
     expect(results[0].rarity).toBe("SSR");
     expect(results[0].pityTriggered).toBe(true);
+  });
+
+  it("硬保底展示按本池 SSR 后抽数计算，并且不会溢出或出现负数", () => {
+    const pool: PoolConfig = { ...basePool, pity: { ...basePool.pity, hardPity: 60, softStart: 45 } };
+    const progress = pityProgress(pool, { totalPulls: 200, pullsSinceSSR: 151, pullsSinceSR: 151, guaranteedSSR: false });
+    expect(progress.pullsSinceSSR).toBe(60);
+    expect(progress.untilHardPity).toBe(0);
+    expect(progress.softPityActive).toBe(true);
+
+    const reset = pityProgress(pool, { totalPulls: 200, pullsSinceSSR: -7, pullsSinceSR: -7, guaranteedSSR: false });
+    expect(reset.pullsSinceSSR).toBe(0);
+    expect(reset.untilHardPity).toBe(60);
   });
 
   it("十连至少产出 1 名 SR 及以上", () => {
@@ -436,6 +456,22 @@ describe("战斗引擎", () => {
     expect(state.result).toBe("lost");
   });
 
+  it("自动推演达到回合预算不会把尚未结束的战斗判负", () => {
+    const durableStats = { hp: 100_000, atk: 1, mag: 1, def: 10_000, res: 10_000, spd: 60, hit: 100, crit: 0, critDmg: 150, dodge: 0 };
+    const state = startBattle([
+      makeAlly({ stats: durableStats }),
+      makeEnemy({ stats: durableStats }),
+    ], { nodeKey: "t", regionKey: "r", seed: 91 });
+
+    const events = autoResolve(state, createRng(91), 2);
+
+    expect(state.units.filter((unit) => unit.alive)).toHaveLength(2);
+    expect(state.finished).toBe(false);
+    expect(state.result).toBe("ongoing");
+    expect(events.some((event) => event.type === "defeat")).toBe(false);
+    expect(events.some((event) => event.text.includes("自动推演已暂停"))).toBe(true);
+  });
+
   it("战斗状态可序列化并在恢复后继续（服务器权威）", () => {
     const state = startBattle([makeAlly(), makeEnemy()], { nodeKey: "t", regionKey: "r", seed: 55 });
     const serialized = JSON.parse(JSON.stringify(state));
@@ -526,7 +562,7 @@ describe("AI 角色互动：Schema 校验与在场角色约束", () => {
     expect(result.output.turns[0].mood).toBe("calm");
   });
 
-  it("拒绝成人向内容与重复发言", () => {
+  it("拒绝成人向内容，并静默归一化同一角色的重复发言", () => {
     const banned = validateAiOutput(
       {
         turns: [{ charKey: "adrian", action: "speak", content: "描述色情内容", mood: "calm", bondDelta: 1 }],
@@ -548,8 +584,10 @@ describe("AI 角色互动：Schema 校验与在场角色约束", () => {
       },
       ["adrian"],
     );
-    expect(duplicated.violations.some((violation) => violation.code === "duplicate_char")).toBe(true);
     expect(duplicated.output.turns).toHaveLength(1);
+    expect(duplicated.output.turns[0].content).toBe("「我听着。」");
+    expect(duplicated.rejectedTurns).toBe(1);
+    expect(duplicated.ok).toBe(true);
   });
 
   it("非 JSON 与结构缺失均被拒绝", () => {
@@ -644,6 +682,16 @@ describe("策划配置与安全", () => {
         expect(level.cost).toBeDefined();
       }
     }
+  });
+
+  it("酒馆与图书馆的合计星辉日产出受控增长", () => {
+    const daily = (key: string, level: number) => {
+      const building = BUILDING_BY_KEY.get(key)!;
+      return Number((building.levels[level - 1].produce as Record<string, number>).aether ?? 0) * 24;
+    };
+    expect(daily("tavern", 1) + daily("library", 1)).toBeCloseTo(2, 5);
+    expect(daily("tavern", 5) + daily("library", 5)).toBeCloseTo(5, 5);
+    expect(daily("tavern", 10) + daily("library", 10)).toBeCloseTo(10, 5);
   });
 
   it("地图数据完整：区域 6 个、节点 35 个，引用关系正确", () => {

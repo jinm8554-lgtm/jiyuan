@@ -177,10 +177,11 @@ export type NodeSeed = {
   sortOrder: number;
 };
 
+/** 战斗奖励以单抽成本的十分之一到一倍多为主，首通仍通过原始档位体现优势。 */
 const rewards = (gold: number, exp: number, aether: number, renown: number, items: Array<{ equipKey: string; chance: number }> = []) => ({
   gold,
   exp,
-  aether,
+  aether: Math.max(1, Math.round(aether / 10)),
   renown,
   items,
 });
@@ -308,14 +309,14 @@ export const NODE_SEEDS: NodeSeed[] = [
     enemyWave: [enemy("e_rift_bloom", "裂隙花簇", "mage", "frost", 27, "在裂隙边缘开出的花，会主动靠近温暖的东西。"), enemy("e_aether_warden", "星辉守卫", "knight", "lightning", 27, "裂隙的自发防卫。"), enemy("e_grove_warden", "树环守卫", "sage", "frost", 27, "林脉自己的意志。"), enemy("e_song_echo", "歌之回声", "cleric", "holy", 26, "唱着林脉的名字。")],
     rewards: rewards(1100, 1350, 34, 44, [{ equipKey: "eq_skyline_greaves", chance: 0.07 }]),
     firstClearRewards: rewards(1600, 1750, 52, 62, [{ equipKey: "eq_observation_staff", chance: 0.35 }]),
-    unlock: { nodeKey: "sv_singer_stone" }, storyKey: "story_ch3_heartwood", tradeYield: { aether: 6 }, controlWeight: 3, requiredClears: 4, staminaCost: 10, mapX: 26, mapY: 30, sortOrder: 5,
+    unlock: { nodeKey: "sv_singer_stone" }, storyKey: "story_ch3_heartwood", tradeYield: { aether: 0.3 }, controlWeight: 3, requiredClears: 4, staminaCost: 10, mapX: 26, mapY: 30, sortOrder: 5,
   },
   {
     nodeKey: "sv_concord_hall", regionKey: "sylvan", name: "森语议会", nodeType: "fort", levelMin: 27, levelMax: 35,
     enemyWave: [enemy("e_rift_avatar", "裂隙拟态", "warrior", "shadow", 31, "模仿了来访者中最强的那一位。"), enemy("e_thorn_beast", "棘刺兽", "assassin", "physical", 31, "成群出现。"), enemy("e_grove_warden", "树环守卫", "knight", "frost", 30, "最后的防线。"), enemy("e_song_echo", "歌之回声", "sage", "holy", 30, "唱着议会的开场词。")],
     rewards: rewards(1300, 1600, 40, 50, [{ equipKey: "eq_aether_core", chance: 0.06 }]),
     firstClearRewards: rewards(1900, 2100, 60, 72, [{ equipKey: "eq_dawnlight_rod", chance: 0.25 }]),
-    unlock: { nodeKey: "sv_heartwood" }, storyKey: "story_ch3_concord", tradeYield: { wood: 20, aether: 4 }, controlWeight: 4, requiredClears: 4, staminaCost: 11, mapX: 42, mapY: 30, sortOrder: 6,
+    unlock: { nodeKey: "sv_heartwood" }, storyKey: "story_ch3_concord", tradeYield: { wood: 20, aether: 0.2 }, controlWeight: 4, requiredClears: 4, staminaCost: 11, mapX: 42, mapY: 30, sortOrder: 6,
   },
 
   /* ------------------------ 潮汐矿谷 tidevale ------------------------ */
@@ -338,7 +339,7 @@ export const NODE_SEEDS: NodeSeed[] = [
     enemyWave: [enemy("e_shaft_crawler", "坑道爬行者", "assassin", "physical", 25, "长期生活在黑暗中，怕光。"), enemy("e_runaway_golem", "失控锻炉机偶", "warrior", "physical", 25, "在坑道里乱撞。"), enemy("e_wraith_miner", "蚀影·矿工", "sage", "shadow", 24, "仍在敲打一处早已塌方的矿脉。")],
     rewards: rewards(1000, 1250, 28, 38, [{ equipKey: "eq_aether_core", chance: 0.05 }]),
     firstClearRewards: rewards(1500, 1600, 44, 58, []),
-    unlock: { nodeKey: "tv_water_works" }, storyKey: "story_ch4_shaft", tradeYield: { iron: 14, aether: 3 }, controlWeight: 2, requiredClears: 4, staminaCost: 9, mapX: 68, mapY: 50, sortOrder: 3,
+    unlock: { nodeKey: "tv_water_works" }, storyKey: "story_ch4_shaft", tradeYield: { iron: 14, aether: 1 }, controlWeight: 2, requiredClears: 4, staminaCost: 9, mapX: 68, mapY: 50, sortOrder: 3,
   },
   {
     nodeKey: "tv_furnace_hall", regionKey: "tidevale", name: "熔炉厅", nodeType: "fort", levelMin: 25, levelMax: 33,
@@ -368,14 +369,14 @@ export const NODE_SEEDS: NodeSeed[] = [
     enemyWave: [enemy("e_aether_warden", "星辉守卫", "knight", "lightning", 27, "凝视着裂隙的方向，不看来访者。"), enemy("e_rift_bloom", "裂隙花簇", "mage", "frost", 27, "在裂缝边缘连成一片。"), enemy("e_shadow_step", "影步", "assassin", "shadow", 26, "只能看见它的脚步。")],
     rewards: rewards(1150, 1400, 40, 42, [{ equipKey: "eq_skyline_greaves", chance: 0.08 }]),
     firstClearRewards: rewards(1700, 1800, 60, 64, [{ equipKey: "eq_star_chart", chance: 0.35 }]),
-    unlock: {}, tradeYield: { aether: 10 }, controlWeight: 1, requiredClears: 3, staminaCost: 9, mapX: 68, mapY: 28, sortOrder: 1,
+    unlock: {}, tradeYield: { aether: 0.15 }, controlWeight: 1, requiredClears: 3, staminaCost: 9, mapX: 68, mapY: 28, sortOrder: 1,
   },
   {
     nodeKey: "sf_crystal_flats", regionKey: "starfall", name: "晶簇荒原", nodeType: "rift", levelMin: 27, levelMax: 35,
     enemyWave: [enemy("e_crystal_hound", "晶簇猎犬", "ranger", "lightning", 30, "由碎晶构成，跑动时会掉下发光碎片。"), enemy("e_aether_warden", "星辉守卫", "warrior", "lightning", 30, "把每一块水晶当作自己的孩子。"), enemy("e_rift_bloom", "裂隙花簇", "cleric", "frost", 29, "会用光修补同伴。")],
     rewards: rewards(1300, 1600, 48, 46, [{ equipKey: "eq_aether_core", chance: 0.08 }]),
     firstClearRewards: rewards(1900, 2000, 70, 70, []),
-    unlock: { nodeKey: "sf_rift_edge" }, storyKey: "story_ch5_flats", tradeYield: { aether: 14, iron: 6 }, controlWeight: 2, requiredClears: 4, staminaCost: 10, mapX: 72, mapY: 20, sortOrder: 2,
+    unlock: { nodeKey: "sf_rift_edge" }, storyKey: "story_ch5_flats", tradeYield: { aether: 0.2, iron: 6 }, controlWeight: 2, requiredClears: 4, staminaCost: 10, mapX: 72, mapY: 20, sortOrder: 2,
   },
   {
     nodeKey: "sf_misaligned_bridge", regionKey: "starfall", name: "错位之桥", nodeType: "ruin", levelMin: 30, levelMax: 38,
@@ -389,14 +390,14 @@ export const NODE_SEEDS: NodeSeed[] = [
     enemyWave: [enemy("e_memory_swarm", "记忆蜂群", "ranger", "shadow", 35, "每一只都带着一句别人说过的话。"), enemy("e_mirror_self", "镜中之影", "knight", "shadow", 35, "它对你的队伍了如指掌。"), enemy("e_wraith_chorus", "蚀影·合声", "mage", "shadow", 34, "洞窟把它们的歌声放大了十倍。"), enemy("e_crystal_hound", "晶簇猎犬", "warrior", "lightning", 34, "在黑暗中只留下光点。")],
     rewards: rewards(1700, 2000, 64, 54, [{ equipKey: "eq_aether_core", chance: 0.1 }]),
     firstClearRewards: rewards(2300, 2500, 90, 82, []),
-    unlock: { nodeKey: "sf_misaligned_bridge" }, storyKey: "story_ch5_cavern", tradeYield: { aether: 18 }, controlWeight: 3, requiredClears: 5, staminaCost: 12, mapX: 80, mapY: 20, sortOrder: 4,
+    unlock: { nodeKey: "sf_misaligned_bridge" }, storyKey: "story_ch5_cavern", tradeYield: { aether: 0.3 }, controlWeight: 3, requiredClears: 5, staminaCost: 12, mapX: 80, mapY: 20, sortOrder: 4,
   },
   {
     nodeKey: "sf_rift_heart", regionKey: "starfall", name: "裂隙之心", nodeType: "rift", levelMin: 34, levelMax: 42,
     enemyWave: [enemy("e_rift_avatar", "裂隙拟态", "sage", "shadow", 38, "它由所有在这里失去过东西的人的记忆拼成。"), enemy("e_memory_swarm", "记忆蜂群", "assassin", "shadow", 38, "在耳边不断重复。"), enemy("e_aether_warden", "星辉守卫", "knight", "lightning", 37, "最后的守门者。"), enemy("e_mirror_self", "镜中之影", "warrior", "shadow", 37, "它看起来很像你自己。")],
     rewards: rewards(2000, 2400, 80, 60, [{ equipKey: "eq_unnamed_blade", chance: 0.1 }, { equipKey: "eq_aether_core", chance: 0.12 }]),
     firstClearRewards: rewards(2800, 3000, 120, 95, [{ equipKey: "eq_unnamed_blade", chance: 1 }]),
-    unlock: { nodeKey: "sf_whisper_cavern" }, storyKey: "story_ch5_heart", tradeYield: { aether: 26 }, controlWeight: 4, requiredClears: 5, staminaCost: 13, mapX: 84, mapY: 28, sortOrder: 5,
+    unlock: { nodeKey: "sf_whisper_cavern" }, storyKey: "story_ch5_heart", tradeYield: { aether: 0.85 }, controlWeight: 4, requiredClears: 5, staminaCost: 13, mapX: 84, mapY: 28, sortOrder: 5,
   },
 
   /* ------------------------ 高塔城废墟 hightower ------------------------ */
@@ -419,7 +420,7 @@ export const NODE_SEEDS: NodeSeed[] = [
     enemyWave: [enemy("e_book_shade", "书影", "mage", "shadow", 41, "没有读完自己那一页就被烧掉了。"), enemy("e_clock_warden", "钟塔守卫", "knight", "lightning", 41, "守着图书馆的门。"), enemy("e_wraith_chorus", "蚀影·合声", "cleric", "shadow", 40, "念着失传的目录。"), enemy("e_memory_swarm", "记忆蜂群", "ranger", "shadow", 40, "从书页间飞出。")],
     rewards: rewards(2200, 2700, 86, 64, [{ equipKey: "eq_star_chart", chance: 0.1 }]),
     firstClearRewards: rewards(3000, 3200, 110, 96, [{ equipKey: "eq_star_chart", chance: 1 }]),
-    unlock: { nodeKey: "ht_clock_square" }, storyKey: "story_ch6_library", tradeYield: { aether: 20 }, controlWeight: 2, requiredClears: 4, staminaCost: 12, mapX: 88, mapY: 44, sortOrder: 3,
+    unlock: { nodeKey: "ht_clock_square" }, storyKey: "story_ch6_library", tradeYield: { aether: 0.5 }, controlWeight: 2, requiredClears: 4, staminaCost: 12, mapX: 88, mapY: 44, sortOrder: 3,
   },
   {
     nodeKey: "ht_council_chamber", regionKey: "hightower", name: "议会厅", nodeType: "fort", levelMin: 40, levelMax: 48,
@@ -440,7 +441,7 @@ export const NODE_SEEDS: NodeSeed[] = [
     enemyWave: [enemy("e_rift_avatar", "裂隙拟态", "mage", "shadow", 49, "它记住了这座城陷落那天的每一句话。"), enemy("e_crown_echo", "王冠回声", "knight", "holy", 49, "最后的守卫。"), enemy("e_clock_warden", "钟塔守卫", "warrior", "lightning", 48, "与钟声一同行动。"), enemy("e_aether_warden", "星辉守卫", "sage", "lightning", 48, "星辉在塔顶聚成了人形。")],
     rewards: rewards(3200, 4000, 130, 90, [{ equipKey: "eq_unnamed_blade", chance: 0.12 }, { equipKey: "eq_dusk_longsword", chance: 0.12 }]),
     firstClearRewards: rewards(4500, 4800, 180, 140, []),
-    unlock: { nodeKey: "ht_throne_shadow" }, storyKey: "story_ch6_tower", tradeYield: { aether: 40, renown: 4 }, controlWeight: 4, requiredClears: 6, staminaCost: 15, mapX: 92, mapY: 50, sortOrder: 6,
+    unlock: { nodeKey: "ht_throne_shadow" }, storyKey: "story_ch6_tower", tradeYield: { aether: 1, renown: 4 }, controlWeight: 4, requiredClears: 6, staminaCost: 15, mapX: 92, mapY: 50, sortOrder: 6,
   },
 ];
 

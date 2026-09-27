@@ -14,6 +14,7 @@ import { appRouter } from "../routers";
 import { getDb } from "../db";
 import type { TrpcContext } from "../_core/context";
 import { apiTokens, battles, characters, gameProfiles, nodeStates, playerCharacters, playerEquipments, profileBuildings, regionStates, teams, users } from "../../drizzle/schema";
+import { accrueProfile } from "../game/service";
 
 const TEST_OPEN_ID = "vitest-flow-user";
 const ADMIN_OPEN_ID = "vitest-flow-admin";
@@ -90,6 +91,7 @@ flowDescribe("核心流程：从建档到征服", () => {
     expect(home.lord.name.length).toBeGreaterThan(0);
     expect(home.lord.level).toBeGreaterThanOrEqual(1);
     expect(home.resources.gold).toBeGreaterThan(0);
+    expect(home.resources.aether).toBe(1800);
     // 起步不空手：至少 2 名初始角色
     expect(home.totalCharacters).toBeGreaterThanOrEqual(2);
     expect(home.roster.length).toBeGreaterThanOrEqual(2);
@@ -104,6 +106,23 @@ flowDescribe("核心流程：从建档到征服", () => {
     const profiles = await db.select({ id: gameProfiles.id }).from(gameProfiles).where(eq(gameProfiles.userId, playerUserId));
     profileId = profiles[0].id;
     expect(profileId).toBeGreaterThan(0);
+  }, 60_000);
+
+  it("1a. 资源结算只推进一次时间戳，不会重复领取同一段离线产出", async () => {
+    const now = new Date();
+    await db
+      .update(gameProfiles)
+      .set({ lastTickAt: new Date(now.getTime() - 3600_000) })
+      .where(eq(gameProfiles.id, profileId));
+
+    const first = await accrueProfile(profileId, now);
+    const second = await accrueProfile(profileId, now);
+    expect(first.secondsElapsed).toBe(3600);
+    expect(second.secondsElapsed).toBe(0);
+
+    const [saved] = await db.select({ lastTickAt: gameProfiles.lastTickAt }).from(gameProfiles).where(eq(gameProfiles.id, profileId)).limit(1);
+    // MySQL 的 DATETIME 按秒存储，允许毫秒在边界处四舍五入。
+    expect(Math.abs(saved.lastTickAt.getTime() - now.getTime())).toBeLessThanOrEqual(1000);
   }, 60_000);
 
   it("1b. 队伍自愈：即使队伍被清空，主城与远征都会自动补入角色（防「队伍中没有角色」）", async () => {
@@ -121,6 +140,45 @@ flowDescribe("核心流程：从建档到征服", () => {
     const recent = await player.battle.recent();
     if (recent.length > 0) await player.battle.flee({ battleId: recent[0].battleId });
   }, 90_000);
+
+  it("1c. 灰色地区不可出征，可用节点不能被当作已通关前置", async () => {
+    // 模拟旧版本曾错误持久化的节点状态。潮痕谷此时仍未满足区域解锁条件。
+    await db
+      .update(nodeStates)
+      .set({ status: "available" })
+      .where(and(eq(nodeStates.profileId, profileId), inArray(nodeStates.nodeKey, ["tv_market_mouth", "tv_water_works"])));
+
+    const world = await player.world.map();
+    const tidevale = world.regions.find((region) => region.regionKey === "tidevale")!;
+    expect(tidevale.unlocked).toBe(false);
+    expect(tidevale.nodes.every((node) => !node.unlocked)).toBe(true);
+    await expect(player.battle.start({ nodeKey: "tv_water_works" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+    const repaired = await db
+      .select({ nodeKey: nodeStates.nodeKey, status: nodeStates.status })
+      .from(nodeStates)
+      .where(and(eq(nodeStates.profileId, profileId), inArray(nodeStates.nodeKey, ["tv_market_mouth", "tv_water_works"])));
+    expect(repaired.every((node) => node.status === "locked")).toBe(true);
+  }, 60_000);
+
+  it("1d. 市场的贸易位按 1/3/5 级开放 1/2/3 条路线", async () => {
+    await db.update(profileBuildings).set({ level: 1 }).where(and(eq(profileBuildings.profileId, profileId), eq(profileBuildings.buildingKey, "market")));
+    await db
+      .update(regionStates)
+      .set({ controlPercent: 30 })
+      .where(and(eq(regionStates.profileId, profileId), inArray(regionStates.regionKey, ["silverpine", "tidevale"])));
+
+    await expect(player.world.toggleTrade({ regionKey: "silverpine", active: true })).resolves.toMatchObject({ tradeSlots: 1, activeTradeSlots: 1 });
+    await expect(player.world.toggleTrade({ regionKey: "tidevale", active: true })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+
+    await db.update(profileBuildings).set({ level: 3 }).where(and(eq(profileBuildings.profileId, profileId), eq(profileBuildings.buildingKey, "market")));
+    await expect(player.world.toggleTrade({ regionKey: "tidevale", active: true })).resolves.toMatchObject({ tradeSlots: 2, activeTradeSlots: 2 });
+    const map = await player.world.map();
+    expect(map.summary).toMatchObject({ tradeSlots: 2, activeTradeSlots: 2 });
+
+    await player.world.toggleTrade({ regionKey: "silverpine", active: false });
+    await player.world.toggleTrade({ regionKey: "tidevale", active: false });
+  }, 60_000);
 
   it("2. 会话过期与权限隔离：未登录被拒、普通会员访问后台被拒", async () => {
     const anonymous = appRouter.createCaller(makeCtx(undefined as unknown as TrpcContext["user"]));
@@ -179,6 +237,11 @@ flowDescribe("核心流程：从建档到征服", () => {
     expect(pool.pityRules.tenPullGuarantee).toContain("10");
 
     const before = await player.character.roster({ filter: "owned" });
+    const [resourcesBeforeDraw] = await db
+      .select({ aether: gameProfiles.aether, recruitShards: gameProfiles.recruitShards })
+      .from(gameProfiles)
+      .where(eq(gameProfiles.id, profileId))
+      .limit(1);
     const draw = await player.recruit.draw({ poolKey: pool.poolKey, count: 10 });
     expect(draw.ok).toBe(true);
     expect(draw.results).toHaveLength(10);
@@ -191,6 +254,14 @@ flowDescribe("核心流程：从建档到征服", () => {
     }
     const after = await player.character.roster({ filter: "owned" });
     expect(after.summary.owned).toBeGreaterThanOrEqual(before.summary.owned);
+    const [resourcesAfterDraw] = await db
+      .select({ aether: gameProfiles.aether, recruitShards: gameProfiles.recruitShards })
+      .from(gameProfiles)
+      .where(eq(gameProfiles.id, profileId))
+      .limit(1);
+    const shardTotal = draw.results.reduce((sum, item) => sum + Number(item.shards ?? 0), 0);
+    expect(resourcesAfterDraw.aether).toBe(resourcesBeforeDraw.aether - draw.cost);
+    expect(resourcesAfterDraw.recruitShards).toBe(resourcesBeforeDraw.recruitShards + shardTotal);
 
     const history = await player.recruit.history({ limit: 50 });
     expect(history.length).toBeGreaterThanOrEqual(10);
@@ -454,6 +525,9 @@ flowDescribe("核心流程：从建档到征服", () => {
     expect(Array.isArray(talk.turns)).toBe(true);
     const conversation = await player.ai.conversation({ conversationId: session.conversationId });
     expect(conversation.messages.length).toBeGreaterThan(0);
+    expect(conversation.messages.some((message) => message.role === "player" && message.content === "聊聊各自的过去吧。")).toBe(true);
+    await expect(player.ai.deleteConversation({ conversationId: session.conversationId })).resolves.toMatchObject({ ok: true });
+    await expect(player.ai.conversation({ conversationId: session.conversationId })).rejects.toMatchObject({ code: "NOT_FOUND" });
   }, 150_000);
 
   it("11. GM 后台：新增角色发布后客户端立即可见，下架后立即消失", async () => {

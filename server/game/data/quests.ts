@@ -12,7 +12,14 @@ export type QuestSeed = {
   sortOrder: number;
 };
 
-const q = (v: QuestSeed) => v;
+/** 主线、支线与日常的星辉按新版招募成本收敛，其他奖励保持原节奏。 */
+const scaleAether = (values: Record<string, unknown>, divisor: number) => {
+  const aether = Number(values.aether ?? 0);
+  if (!Number.isFinite(aether) || aether === 0) return values;
+  return { ...values, aether: Math.sign(aether) * Math.max(1, Math.round(Math.abs(aether) / divisor)) };
+};
+
+const q = (v: QuestSeed): QuestSeed => ({ ...v, rewards: scaleAether(v.rewards, 2) });
 
 export const QUEST_SEEDS: QuestSeed[] = [
   q({
@@ -301,8 +308,8 @@ export const POOL_SEEDS: PoolSeed[] = [
       { rarity: "R", rate: 0.8 },
     ],
     pity: { softStart: 60, softStep: 0.06, hardPity: 80, tenPullMinRarity: "SR", duplicateShards: 1 },
-    costSingle: 1,
-    costTen: 10,
+    costSingle: 10,
+    costTen: 100,
     currency: "aether",
     characterKeys: [],
     enabled: true,
@@ -319,8 +326,8 @@ export const POOL_SEEDS: PoolSeed[] = [
       { rarity: "R", rate: 0.5 },
     ],
     pity: { softStart: 45, softStep: 0.08, hardPity: 60, tenPullMinRarity: "SR", duplicateShards: 1 },
-    costSingle: 3,
-    costTen: 30,
+    costSingle: 30,
+    costTen: 300,
     currency: "aether",
     characterKeys: [],
     enabled: true,
@@ -337,8 +344,8 @@ export const POOL_SEEDS: PoolSeed[] = [
       { rarity: "R", rate: 0.7 },
     ],
     pity: { softStart: 50, softStep: 0.07, hardPity: 70, tenPullMinRarity: "SR", duplicateShards: 2 },
-    costSingle: 2,
-    costTen: 20,
+    costSingle: 20,
+    costTen: 200,
     currency: "aether",
     characterKeys: ["liesel", "cecilia", "viola", "mira"],
     enabled: true,
@@ -359,7 +366,7 @@ export type EventSeed = {
   once: boolean;
 };
 
-export const EVENT_SEEDS: EventSeed[] = [
+export const EVENT_SEEDS: EventSeed[] = ([
   {
     eventKey: "ev_refugee_wave",
     title: "城外的流民",
@@ -443,4 +450,12 @@ export const EVENT_SEEDS: EventSeed[] = [
     weight: 15,
     once: false,
   },
-];
+] as EventSeed[]).map((event) => ({
+  ...event,
+  choices: event.choices.map((choice) => {
+    const effect = choice.effect;
+    return effect && typeof effect === "object"
+      ? { ...choice, effect: scaleAether(effect as Record<string, unknown>, 4) }
+      : choice;
+  }),
+}));

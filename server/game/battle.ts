@@ -747,13 +747,15 @@ export function advanceToNextActor(state: BattleState, rng: () => number) {
 }
 
 /**
- * 半自动战斗：从当前状态快速推演至结束
+ * 半自动战斗：从当前状态快速推演。达到单次回合预算时保留进行中状态，
+ * 胜负仍只由任一方全灭决定。
  * 我方 AI 策略：优先治疗濒死队友 → 使用可用技能 → 普攻
  */
 export function autoResolve(state: BattleState, rng: () => number, maxTurns = 60): BattleEvent[] {
   const allEvents: BattleEvent[] = [];
+  const turnLimit = state.turn + Math.max(1, maxTurns) - 1;
   let guard = 0;
-  while (!state.finished && state.turn <= maxTurns && guard < 4000) {
+  while (!state.finished && state.turn <= turnLimit && guard < 4000) {
     guard += 1;
     const unitId = state.awaitingUnitId;
     if (!unitId) {
@@ -802,10 +804,14 @@ export function autoResolve(state: BattleState, rng: () => number, maxTurns = 60
     if (checkBattleEnd(state, events)) break;
     advanceToNextActor(state, rng);
   }
-  if (!state.finished && state.turn > maxTurns) {
-    state.finished = true;
-    state.result = "lost";
-    state.log.push({ turn: state.turn, type: "defeat", text: "战斗超时，队伍撤回领地。" });
+  if (!state.finished) {
+    const pauseEvent: BattleEvent = {
+      turn: state.turn,
+      type: "info",
+      text: "自动推演已暂停，双方仍有存活单位，战斗继续。",
+    };
+    state.log.push(pauseEvent);
+    allEvents.push(pauseEvent);
   }
   return allEvents;
 }

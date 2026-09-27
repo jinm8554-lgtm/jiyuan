@@ -1,7 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { and, eq, lt, sql } from "drizzle-orm";
 import { z } from "zod";
-import { gameProfiles, nodeStates, regionStates, storyScenes, worldNodes } from "../../drizzle/schema";
+import { gameProfiles, nodeStates, profileBuildings, regionStates, storyScenes, worldNodes } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { NODE_BY_KEY, NODE_SEEDS, NODE_TYPE_LABEL, REGION_SEEDS } from "../game/data/world";
 import { controlPercent, round } from "../game/formulas";
@@ -11,6 +11,15 @@ import { protectedProcedure, router } from "../_core/trpc";
 import { resolveProfile } from "./_shared";
 
 type TradeSettlement = { gains: Record<string, number>; hours: number; processed: number; autoDispatched: boolean };
+const AETHER_MICRO_SCALE = 1_000_000;
+
+/** 市场 1/3/5 级分别开放 1/2/3 条贸易路线。 */
+function tradeSlotCapacity(marketLevel: number): number {
+  if (marketLevel < 1) return 0;
+  if (marketLevel < 3) return 1;
+  if (marketLevel < 5) return 2;
+  return 3;
+}
 
 /** 结算当前账号的商队；普通收取后商队返回，会员开启自动派遣则立即重新出发。 */
 async function settleTrade(profileId: number, forcedHours?: number, onlyExpired = false): Promise<TradeSettlement> {
@@ -20,10 +29,20 @@ async function settleTrade(profileId: number, forcedHours?: number, onlyExpired 
   const active = states.filter((state) => state.tradeActive && state.tradeStartedAt);
   if (active.length === 0) return { gains: {}, hours: 0, processed: 0, autoDispatched: false };
 
+  const [profile] = await db
+    .select({ aetherTradeMicros: gameProfiles.aetherTradeMicros })
+    .from(gameProfiles)
+    .where(eq(gameProfiles.id, profileId))
+    .limit(1);
+  if (!profile) throw new TRPCError({ code: "NOT_FOUND", message: "档案不存在" });
+  const buildingRows = await db.select().from(profileBuildings).where(eq(profileBuildings.profileId, profileId));
+  const marketLevel = buildingRows.find((row) => row.buildingKey === "market")?.level ?? 0;
+  const tradeMultiplier = marketLevel >= 6 ? 1.15 : 1;
   const nodeRows = await db.select().from(nodeStates).where(eq(nodeStates.profileId, profileId));
   const benefits = await getMembershipBenefits(profileId);
   let hours = 0;
   const gains: Record<string, number> = {};
+  let aetherTradeMicros = profile.aetherTradeMicros;
   const processedStates = [] as typeof active;
   for (const state of active) {
     const elapsedHours = forcedHours ?? Math.min(8, (Date.now() - (state.tradeStartedAt?.getTime() ?? Date.now())) / 3600 / 1000);
@@ -35,10 +54,22 @@ async function settleTrade(profileId: number, forcedHours?: number, onlyExpired 
       const row = nodeRows.find((item) => item.nodeKey === node.nodeKey);
       if (!row || (row.status !== "cleared" && row.status !== "conquered")) continue;
       for (const [key, value] of Object.entries(node.tradeYield ?? {})) {
-        gains[key] = (gains[key] ?? 0) + round(Number(value ?? 0) * elapsedHours);
+        const scaled = Number(value ?? 0) * elapsedHours * tradeMultiplier;
+        if (key === "aether") {
+          aetherTradeMicros += Math.round(scaled * AETHER_MICRO_SCALE);
+        } else {
+          gains[key] = (gains[key] ?? 0) + round(scaled);
+        }
       }
     }
   }
+
+  const aetherGain = Math.floor(aetherTradeMicros / AETHER_MICRO_SCALE);
+  if (aetherGain > 0) gains.aether = (gains.aether ?? 0) + aetherGain;
+  await db
+    .update(gameProfiles)
+    .set({ aetherTradeMicros: aetherTradeMicros % AETHER_MICRO_SCALE })
+    .where(eq(gameProfiles.id, profileId));
 
   if (Object.keys(gains).length > 0) await addResources(profileId, gains as never);
   for (const state of processedStates) {
@@ -62,11 +93,13 @@ export const worldRouter = router({
     await syncUnlocks(profile.id);
     const nodeRows = await db.select().from(nodeStates).where(eq(nodeStates.profileId, profile.id));
     const regionRows = await db.select().from(regionStates).where(eq(regionStates.profileId, profile.id));
+    const buildingRows = await db.select().from(profileBuildings).where(eq(profileBuildings.profileId, profile.id));
+    const tradeSlots = tradeSlotCapacity(buildingRows.find((row) => row.buildingKey === "market")?.level ?? 0);
     const roster = await loadRoster(profile.id);
     const topPower = roster
       .slice(0, 4)
       .reduce((sum, entry) => sum + entry.power, 0);
-    const clearedKeys = new Set(nodeRows.filter((row) => row.status !== "locked").map((row) => row.nodeKey));
+    const clearedKeys = new Set(nodeRows.filter((row) => row.status === "cleared" || row.status === "conquered").map((row) => row.nodeKey));
     const srCount = roster.filter((entry) => entry.config.rarity !== "R").length;
     const controlOf = (regionKey: string) => regionRows.find((row) => row.regionKey === regionKey)?.controlPercent ?? 0;
 
@@ -80,6 +113,7 @@ export const worldRouter = router({
         power: topPower,
         controlPercent: controlOf,
       });
+      const regionUnlocked = Boolean(state?.unlocked) || check.unlocked;
       const nodes = NODE_SEEDS.filter((node) => node.regionKey === region.regionKey)
         .sort((a, b) => a.sortOrder - b.sortOrder)
         .map((node) => {
@@ -104,9 +138,13 @@ export const worldRouter = router({
             requiredClears: node.requiredClears,
             clearCount: row?.clearCount ?? 0,
             status,
-            // 只有已持久化的节点状态才能出征；解锁计算结果仅用于展示原因，避免灰色节点被误判为可用。
-            unlocked: status !== "locked",
-            lockReason: status === "locked" ? nodeCheck.reason : null,
+            // 节点可出征必须同时满足：所属区域已解锁、节点状态已持久化为可用。
+            unlocked: regionUnlocked && status !== "locked",
+            lockReason: !regionUnlocked
+              ? `所属区域尚未解锁：${check.reason ?? "请先推进主线"}`
+              : status === "locked"
+                ? nodeCheck.reason
+                : null,
             mapX: node.mapX,
             mapY: node.mapY,
             hasStory: Boolean(node.storyKey),
@@ -132,7 +170,7 @@ export const worldRouter = router({
         mapX: region.mapX,
         mapY: region.mapY,
         artUrl: region.artUrl,
-        unlocked: (state?.unlocked ?? false) || check.unlocked,
+        unlocked: regionUnlocked,
         lockReason: (state?.unlocked ?? false) ? null : check.reason,
         controlPercent: state?.controlPercent ?? 0,
         controlledNodes: state?.controlledNodes ?? 0,
@@ -155,6 +193,8 @@ export const worldRouter = router({
         chapter: profile.chapter,
         stamina: profile.stamina,
         staminaMax: profile.staminaMax,
+        tradeSlots,
+        activeTradeSlots: regionsView.filter((region) => region.tradeActive).length,
         membership,
       },
     };
@@ -248,9 +288,9 @@ export const worldRouter = router({
         rarity: enemyUnit.rarity,
         note: enemyUnit.note,
       })),
-      rewards: state?.firstClearedAt ? row.rewards : row.firstClearRewards,
-      regularRewards: row.rewards,
-      tradeYield: row.tradeYield,
+      rewards: state?.firstClearedAt ? seed.rewards : seed.firstClearRewards,
+      regularRewards: seed.rewards,
+      tradeYield: seed.tradeYield,
       storyKey: row.storyKey ?? null,
       hasStoryScene: Boolean(row.storyKey),
       teamSummary: {
@@ -404,11 +444,31 @@ export const worldRouter = router({
     if (input.active && state.controlPercent < 30) {
       throw new TRPCError({ code: "BAD_REQUEST", message: "区域控制度需达到 30% 才能开通定期商队" });
     }
+    const buildingRows = await db.select().from(profileBuildings).where(eq(profileBuildings.profileId, profile.id));
+    const slots = tradeSlotCapacity(buildingRows.find((row) => row.buildingKey === "market")?.level ?? 0);
+    if (input.active && slots <= 0) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "市场达到 1 级后才能派遣商队" });
+    }
+    const activeStates = await db
+      .select({ regionKey: regionStates.regionKey })
+      .from(regionStates)
+      .where(and(eq(regionStates.profileId, profile.id), eq(regionStates.tradeActive, true)));
+    const alreadyActive = activeStates.some((item) => item.regionKey === input.regionKey);
+    if (input.active && !alreadyActive && activeStates.length >= slots) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: `贸易位已满（${slots}/${slots}）；提升市场至 3、5 级可增加贸易位` });
+    }
     await db
       .update(regionStates)
       .set({ tradeActive: input.active, tradeStartedAt: input.active ? new Date() : null })
       .where(eq(regionStates.id, state.id));
-    return { ok: true, tradeActive: input.active };
+    return {
+      ok: true,
+      tradeActive: input.active,
+      tradeSlots: slots,
+      activeTradeSlots: input.active
+        ? activeStates.length + (alreadyActive ? 0 : 1)
+        : Math.max(0, activeStates.length - (alreadyActive ? 1 : 0)),
+    };
   }),
 
   /** 收取贸易收益 */

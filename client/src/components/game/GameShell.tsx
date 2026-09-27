@@ -6,7 +6,6 @@ import { useEffect, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { Loader2, LogOut, Menu, Settings, ShieldCheck, X } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { startLogin } from "@/const";
 import { Button } from "@/components/ui/button";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
@@ -68,7 +67,7 @@ function BrandMark({ compact = false }: { compact?: boolean }) {
 }
 
 export function GameShell({ children }: { children: React.ReactNode }) {
-  const [location] = useLocation();
+  const [location, setLocation] = useLocation();
   const { user, loading, isAuthenticated, logout } = useAuth();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [now, setNow] = useState(() => new Date());
@@ -81,6 +80,12 @@ export function GameShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     setMobileNavOpen(false);
   }, [location]);
+
+  // 主动退出和真实会话失效都应回到根登录页；不在游戏外壳内展示
+  // “会话已过期”中间页，避免认证状态切换时产生闪屏。
+  useEffect(() => {
+    if (!loading && !isAuthenticated) setLocation("/", { replace: true });
+  }, [isAuthenticated, loading, setLocation]);
 
   const active = NAV_ITEMS.find((item) => location.startsWith(item.path));
   const isAdmin = user?.role === "admin";
@@ -97,25 +102,7 @@ export function GameShell({ children }: { children: React.ReactNode }) {
   }
 
   if (!isAuthenticated) {
-    return (
-      <div className="grid min-h-screen place-items-center px-4">
-        <div className="panel panel-gold max-w-md p-6 text-center">
-          <div className="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-sm border border-[color:var(--gold-600)]/60 bg-[color:var(--ink-950)] text-[color:var(--gold-500)]">
-            <FalconCrest size={26} />
-          </div>
-          <h1 className="text-display text-xl text-[color:var(--parchment)]">会话已过期</h1>
-          <p className="mt-2 text-sm leading-relaxed text-[color:var(--parchment-dim)]">
-            登录状态已失效，请重新登录后继续。你的领地进度保存在服务器数据库中，重新登录即可恢复。
-          </p>
-          <Button className="btn-gold mt-4 w-full border-transparent text-[color:var(--ink-950)]" onClick={() => startLogin()}>
-            使用 Manus 账号登录
-          </Button>
-          <Link href="/" className="mt-3 block text-xs text-[color:var(--parchment-muted)] underline">
-            返回首页
-          </Link>
-        </div>
-      </div>
-    );
+    return null;
   }
 
   return (

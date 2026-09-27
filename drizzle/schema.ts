@@ -352,7 +352,14 @@ export const gameProfiles = mysqlTable(
     food: int("food").default(500).notNull(),
     wood: int("wood").default(600).notNull(),
     iron: int("iron").default(200).notNull(),
-    aether: int("aether").default(120).notNull(),
+    /** 新档案给予一次最高卡池硬保底所需的星辉。 */
+    aether: int("aether").default(1800).notNull(),
+    /** 建筑离线星辉的微单位余数，避免低产出被频繁刷新时的取整吞掉。 */
+    aetherAccrualMicros: int("aetherAccrualMicros").default(0).notNull(),
+    /** 商队星辉的微单位余数，与建筑结算独立保存。 */
+    aetherTradeMicros: int("aetherTradeMicros").default(0).notNull(),
+    /** 招募重复角色转化的信物，与招募消耗的星辉分离计算 */
+    recruitShards: int("recruitShards").default(0).notNull(),
     renown: int("renown").default(20).notNull(),
 	    stamina: int("stamina").default(80).notNull(),
 	    staminaMax: int("staminaMax").default(80).notNull(),

@@ -119,6 +119,7 @@ export default function World() {
         <div className="flex flex-wrap gap-2">
           <Tag tone="gold">声望 {summary.renown}</Tag>
           <Tag tone="aether">体力 {summary.stamina}/{summary.staminaMax}</Tag>
+          <Tag tone="neutral">商队 {summary.activeTradeSlots}/{summary.tradeSlots}</Tag>
           <Tag tone="neutral">顶配战力 {summary.topPower.toLocaleString("zh-CN")}</Tag>
           <Button size="sm" variant="outline" className="border-[color:var(--gold-600)]/50 text-[color:var(--gold-300)]" onClick={() => collectTrade.mutate()} disabled={collectTrade.isPending}>
             <TrendingUp size={13} className="mr-1" />
@@ -307,7 +308,7 @@ export default function World() {
                 </div>
                 <div className="rounded-sm border border-[color:var(--ink-500)]/60 p-2">
                   <div className="text-numeric text-sm text-[color:var(--aether-300)]">{activeRegion.tradeActive ? "营运中" : "未开通"}</div>
-                  <div className="text-[0.62rem] text-[color:var(--parchment-muted)]">定期商队</div>
+                  <div className="text-[0.62rem] text-[color:var(--parchment-muted)]">定期商队 · {summary.activeTradeSlots}/{summary.tradeSlots}</div>
                 </div>
               </div>
               <GoldRule />
