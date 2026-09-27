@@ -138,6 +138,7 @@ export default function Battle() {
   const startedRef = useRef(false);
 
   const node = trpc.world.node.useQuery({ nodeKey }, { enabled: Boolean(nodeKey) });
+  const worldMap = trpc.world.map.useQuery(undefined, { enabled: Boolean(nodeKey) });
   const detail = trpc.battle.detail.useQuery({ battleId: battleId! }, { enabled: Boolean(battleId) });
 
   const start = trpc.battle.start.useMutation({
@@ -269,10 +270,11 @@ export default function Battle() {
     );
   }
 
-  if (node.data && !node.data.unlocked && !state && !start.isPending && !start.isError) {
+  const mapNode = worldMap.data?.regions.flatMap((region) => region.nodes).find((item) => item.nodeKey === nodeKey);
+  if (mapNode && !mapNode.unlocked && !state && !start.isPending && !start.isError) {
     return (
       <PageSection title="远征">
-        <EmptyState title="节点尚未解锁" hint={node.data.lockReason ?? "请先完成前置节点或解锁条件。"} action={<Link href="/world"><Button className="btn-gold border-transparent text-[color:var(--ink-950)]">返回地图</Button></Link>} />
+        <EmptyState title="节点尚未解锁" hint={mapNode.lockReason ?? "请先完成前置节点或解锁条件。"} action={<Link href="/world"><Button className="btn-gold border-transparent text-[color:var(--ink-950)]">返回地图</Button></Link>} />
       </PageSection>
     );
   }
