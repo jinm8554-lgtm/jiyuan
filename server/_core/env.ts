@@ -1,5 +1,6 @@
 export const ENV = {
-  appId: process.env.VITE_APP_ID ?? "",
+  // 独立部署启用本地账号时不会提供 Manus 项目 ID；会话仍需要稳定的非空 appId。
+  appId: process.env.VITE_APP_ID ?? "aetherfall",
   cookieSecret: process.env.JWT_SECRET ?? "",
   databaseUrl: process.env.DATABASE_URL ?? "",
   oAuthServerUrl: process.env.OAUTH_SERVER_URL ?? "",
