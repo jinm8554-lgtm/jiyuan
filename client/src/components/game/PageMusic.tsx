@@ -26,6 +26,7 @@ export function PageMusic({ src, storageKey, areaName, volume = 0.25 }: PageMusi
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
+    const fadeController = new AbortController();
 
     const removeGestureRetries = () => {
       window.removeEventListener("pointerdown", retryAfterUserGesture);
@@ -39,7 +40,7 @@ export function PageMusic({ src, storageKey, areaName, volume = 0.25 }: PageMusi
         .then(() => {
           setIsPlaying(true);
           removeGestureRetries();
-          if (fadeIn) void fade(audio, volume, 1500);
+          if (fadeIn) void fade(audio, volume, 1500, fadeController.signal);
         })
         .catch(() => {
           setIsPlaying(false);
@@ -74,6 +75,7 @@ export function PageMusic({ src, storageKey, areaName, volume = 0.25 }: PageMusi
     }
 
     return () => {
+      fadeController.abort();
       removeGestureRetries();
       window.removeEventListener(RITUAL_AUDIO_EVENT, handleRitualAudio);
       audio.pause();

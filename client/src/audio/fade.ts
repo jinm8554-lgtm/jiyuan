@@ -2,7 +2,8 @@
 export function fade(
   audio: HTMLAudioElement,
   toVolume: number,
-  durationMs: number
+  durationMs: number,
+  signal?: AbortSignal
 ): Promise<void> {
   const target = Math.min(1, Math.max(0, toVolume));
   const from = Math.min(1, Math.max(0, audio.volume));
@@ -12,16 +13,34 @@ export function fade(
   }
 
   return new Promise(resolve => {
+    let animationFrame = 0;
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      window.cancelAnimationFrame(animationFrame);
+      signal?.removeEventListener("abort", finish);
+      resolve();
+    };
+    if (signal?.aborted) {
+      finish();
+      return;
+    }
     const startedAt = performance.now();
     const frame = (now: number) => {
+      if (signal?.aborted) {
+        finish();
+        return;
+      }
       const progress = Math.min(1, (now - startedAt) / durationMs);
       audio.volume = from + (target - from) * progress;
       if (progress < 1) {
-        window.requestAnimationFrame(frame);
+        animationFrame = window.requestAnimationFrame(frame);
       } else {
-        resolve();
+        finish();
       }
     };
-    window.requestAnimationFrame(frame);
+    signal?.addEventListener("abort", finish, { once: true });
+    animationFrame = window.requestAnimationFrame(frame);
   });
 }

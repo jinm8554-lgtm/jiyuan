@@ -25,7 +25,7 @@ test("首次仪式隔离主界面，空名显示兜底台词并完成", async ({
   await page.setViewportSize({ width: 1920, height: 1080 });
   const ritual = await loginAsNewPlayer(page, `e2e-welcome-${Date.now()}`);
   await expect(ritual).toBeVisible();
-  await expect(ritual.locator("audio")).toHaveAttribute("loop", "");
+  await expect(ritual.locator("audio")).not.toHaveAttribute("loop");
   await expect(ritual.locator("img")).toHaveJSProperty("naturalWidth", 1916);
 
   const shell = page.locator("header").locator("..");
@@ -82,4 +82,23 @@ test("首次仪式在 375px 宽度内显示，移动导航仍停在视口底部"
   await ritual.getByLabel("姓").fill("晨星");
   await ritual.getByRole("button", { name: "落 笔" }).click();
   await expect(ritual).toBeHidden();
+});
+
+test("欢迎音频缺失或被 autoplay 拦截时，仪式仍可完成", async ({ page }) => {
+  const pageErrors: Error[] = [];
+  page.on("pageerror", error => pageErrors.push(error));
+  await page.route("**/audio/welcome_ritual.mp3", route => route.fulfill({ status: 404 }));
+  await page.addInitScript(() => {
+    Object.defineProperty(HTMLMediaElement.prototype, "play", {
+      configurable: true,
+      value: () => Promise.reject(new DOMException("Autoplay blocked", "NotAllowedError")),
+    });
+  });
+
+  const ritual = await loginAsNewPlayer(page, `e2e-welcome-audio-${Date.now()}`);
+  await advanceToNaming(page);
+  await ritual.getByLabel("名").fill("薇拉");
+  await ritual.getByRole("button", { name: "落 笔" }).click();
+  await expect(ritual).toBeHidden();
+  expect(pageErrors).toEqual([]);
 });

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { X } from "lucide-react";
 import { fade } from "@/audio/fade";
 import { isKeepMusicMuted, KEEP_MUSIC_VOLUME, publishRitualAudio } from "@/audio/ritualMusic";
 import { Button } from "@/components/ui/button";
@@ -6,7 +7,10 @@ import { trpc } from "@/lib/trpc";
 import { WELCOME_RITUAL_COPY, WELCOME_SCREENS } from "@/welcomeScript";
 
 type WelcomeRitualProps = {
-  onActivityChange: (active: boolean) => void;
+  mode?: "intro" | "replay";
+  onActivityChange?: (active: boolean) => void;
+  onClose?: () => void;
+  playerName?: string;
 };
 
 function useReducedMotion() {
@@ -23,10 +27,16 @@ function useReducedMotion() {
   return reduced;
 }
 
-/** 首次进入主城时覆盖主界面的四屏命名仪式。 */
-export function WelcomeRitual({ onActivityChange }: WelcomeRitualProps) {
+/** 首次进入主城时命名；编年史通过 replay 模式只读重看同一仪式。 */
+export function WelcomeRitual({
+  mode = "intro",
+  onActivityChange,
+  onClose,
+  playerName = "领主",
+}: WelcomeRitualProps) {
+  const isReplay = mode === "replay";
   const utils = trpc.useUtils();
-  const intro = trpc.keep.introStatus.useQuery(undefined, { retry: false });
+  const intro = trpc.keep.introStatus.useQuery(undefined, { enabled: !isReplay, retry: false });
   const completeIntro = trpc.keep.completeIntro.useMutation();
   const [screenIndex, setScreenIndex] = useState(0);
   const [transitioning, setTransitioning] = useState(false);
@@ -41,15 +51,18 @@ export function WelcomeRitual({ onActivityChange }: WelcomeRitualProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const welcomeAudioRef = useRef<HTMLAudioElement>(null);
   const timers = useRef<number[]>([]);
+  const fadeController = useRef<AbortController | null>(null);
   const reducedMotion = useReducedMotion();
 
   const visible =
-    !dismissed &&
-    !intro.isLoading &&
-    !intro.isError &&
-    intro.data?.introCompleted !== true;
+    isReplay ||
+    (!dismissed &&
+      !intro.isLoading &&
+      !intro.isError &&
+      intro.data?.introCompleted !== true);
   const screen = WELCOME_SCREENS[screenIndex];
-  const isNamingScreen = screen.id === "registry";
+  const isNamingScreen = !isReplay && screen.id === "registry";
+  const isLastScreen = screenIndex === WELCOME_SCREENS.length - 1;
 
   const schedule = (callback: () => void, duration: number) => {
     const timer = window.setTimeout(callback, duration);
@@ -57,12 +70,13 @@ export function WelcomeRitual({ onActivityChange }: WelcomeRitualProps) {
   };
 
   useEffect(() => {
-    onActivityChange(visible);
-    return () => onActivityChange(false);
-  }, [onActivityChange, visible]);
+    if (isReplay) return;
+    onActivityChange?.(visible);
+    return () => onActivityChange?.(false);
+  }, [isReplay, onActivityChange, visible]);
 
   useEffect(() => {
-    if (!visible) return;
+    if (!visible || isReplay) return;
     const audio = welcomeAudioRef.current;
     const playWelcomeMusic = () => {
       if (!audio || isKeepMusicMuted()) return;
@@ -80,11 +94,12 @@ export function WelcomeRitual({ onActivityChange }: WelcomeRitualProps) {
       window.removeEventListener("keydown", playWelcomeMusic);
       audio?.pause();
     };
-  }, [visible]);
+  }, [isReplay, visible]);
 
   useEffect(() => {
     return () => {
       timers.current.forEach(timer => window.clearTimeout(timer));
+      fadeController.current?.abort();
     };
   }, []);
 
@@ -94,6 +109,10 @@ export function WelcomeRitual({ onActivityChange }: WelcomeRitualProps) {
 
   const advance = () => {
     if (transitioning || isNamingScreen) return;
+    if (isReplay && isLastScreen) {
+      onClose?.();
+      return;
+    }
     if (reducedMotion) {
       setScreenIndex(current => current + 1);
       return;
@@ -111,11 +130,14 @@ export function WelcomeRitual({ onActivityChange }: WelcomeRitualProps) {
     setClosing(true);
     schedule(
       async () => {
-        onActivityChange(false);
+        onActivityChange?.(false);
         publishRitualAudio({ active: false, handoff: true });
         const audio = welcomeAudioRef.current;
         if (audio) {
-          await fade(audio, 0, 1500);
+          const controller = new AbortController();
+          fadeController.current = controller;
+          await fade(audio, 0, 1500, controller.signal);
+          if (controller.signal.aborted) return;
           audio.pause();
         }
         setDismissed(true);
@@ -149,18 +171,32 @@ export function WelcomeRitual({ onActivityChange }: WelcomeRitualProps) {
 
   return (
     <div
-      className={`fixed inset-0 z-[60] grid place-items-center bg-[color:var(--ink-950)]/72 p-3 backdrop-blur-[12px] transition-opacity duration-[600ms] motion-reduce:backdrop-blur-none motion-reduce:transition-none sm:p-6 ${closing ? "pointer-events-none opacity-0" : "opacity-100"}`}
+      className={`fixed inset-0 z-[60] grid place-items-center p-3 sm:p-6 ${isReplay ? "bg-[color:var(--ink-950)]/92" : `bg-[color:var(--ink-950)]/72 backdrop-blur-[12px] transition-opacity duration-[600ms] motion-reduce:backdrop-blur-none motion-reduce:transition-none ${closing ? "pointer-events-none opacity-0" : "opacity-100"}`}`}
       role="dialog"
       aria-modal="true"
-      aria-label={WELCOME_RITUAL_COPY.dialogLabel}
+      aria-label={isReplay ? "序章 · 第零章" : WELCOME_RITUAL_COPY.dialogLabel}
       onKeyDownCapture={event => {
-        if (event.key === "Escape") event.preventDefault();
+        if (event.key !== "Escape") return;
+        if (isReplay) onClose?.();
+        else event.preventDefault();
       }}
     >
-      <audio ref={welcomeAudioRef} loop preload="metadata">
-        <source src="/audio/welcome_ritual.mp3" type="audio/mpeg" />
-      </audio>
-      <section className="flex h-full w-full max-w-3xl flex-col overflow-hidden rounded-sm border border-[color:var(--gold-600)]/60 bg-[color:var(--ink-950)] shadow-2xl shadow-black/60 sm:h-auto sm:max-h-[92svh]">
+      {!isReplay ? (
+        <audio ref={welcomeAudioRef} preload="metadata">
+          <source src="/audio/welcome_ritual.mp3" type="audio/mpeg" />
+        </audio>
+      ) : null}
+      <section className="relative flex h-full w-full max-w-3xl flex-col overflow-hidden rounded-sm border border-[color:var(--gold-600)]/60 bg-[color:var(--ink-950)] shadow-2xl shadow-black/60 sm:h-auto sm:max-h-[92svh]">
+        {isReplay ? (
+          <button
+            type="button"
+            className="absolute right-3 top-3 z-20 grid h-9 w-9 place-items-center rounded-sm border border-[color:var(--gold-600)]/60 bg-[color:var(--ink-950)]/90 text-[color:var(--parchment)] hover:border-[color:var(--gold-400)]"
+            aria-label="关闭序章"
+            onClick={onClose}
+          >
+            <X size={17} />
+          </button>
+        ) : null}
         <div className="relative min-h-0 flex-1 overflow-hidden">
           <div
             className="pointer-events-none absolute inset-0 z-10 border-y border-[color:var(--gold-600)]/45"
@@ -194,7 +230,7 @@ export function WelcomeRitual({ onActivityChange }: WelcomeRitualProps) {
               className={`mx-auto max-w-2xl transition-opacity duration-200 motion-reduce:transition-none ${transitioning ? "opacity-0" : "opacity-100"}`}
             >
               <div className="text-caption mb-2">
-                {String(screenIndex + 1).padStart(2, "0")}
+                {isReplay ? `序章 · 第零章 · ${String(screenIndex + 1).padStart(2, "0")}` : String(screenIndex + 1).padStart(2, "0")}
               </div>
               <h1 className="text-display text-2xl text-[color:var(--parchment)] sm:text-3xl">
                 {screen.title}
@@ -238,6 +274,9 @@ export function WelcomeRitual({ onActivityChange }: WelcomeRitualProps) {
                   ) : null}
                 </div>
               ) : null}
+              {isReplay && isLastScreen ? (
+                <p className="mt-7 text-right text-sm text-[color:var(--gold-300)]">—— {playerName}</p>
+              ) : null}
             </div>
           </div>
         </div>
@@ -260,7 +299,7 @@ export function WelcomeRitual({ onActivityChange }: WelcomeRitualProps) {
                 disabled={transitioning}
                 onClick={advance}
               >
-                {WELCOME_RITUAL_COPY.continue}
+                {isReplay && isLastScreen ? "读完" : WELCOME_RITUAL_COPY.continue}
               </Button>
             )}
           </div>

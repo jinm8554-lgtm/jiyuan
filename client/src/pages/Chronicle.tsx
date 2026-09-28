@@ -11,7 +11,7 @@ import { trpc } from "@/lib/trpc";
 import { PageSection } from "@/components/game/GameShell";
 import { FalconCrest } from "@/components/game/GameIcons";
 import { PageMusic } from "@/components/game/PageMusic";
-import { PrologueReplay } from "@/components/welcome/PrologueReplay";
+import { WelcomeRitual } from "@/components/welcome/WelcomeRitual";
 import { AllAgesNote, ErrorState, GoldRule, Panel, SectionTitle, SkeletonState, Tag } from "@/components/game/ui";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { usePlayerName } from "@/hooks/usePlayerName";
@@ -238,7 +238,7 @@ export default function Chronicle() {
         </div>
       </div>
       </PageSection>
-      {prologueOpen ? <PrologueReplay playerName={playerName} onClose={() => setPrologueOpen(false)} /> : null}
+      {prologueOpen ? <WelcomeRitual mode="replay" playerName={playerName} onClose={() => setPrologueOpen(false)} /> : null}
     </>
   );
 }
