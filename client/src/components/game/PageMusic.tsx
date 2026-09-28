@@ -1,15 +1,19 @@
 import { useEffect, useRef, useState } from "react";
 import { Volume2, VolumeX } from "lucide-react";
+import { fade } from "@/audio/fade";
+import { RITUAL_AUDIO_EVENT, type RitualAudioDetail } from "@/audio/ritualMusic";
 
 type PageMusicProps = {
   src: string;
   storageKey: string;
   areaName: string;
+  volume?: number;
 };
 
 /** 页面环境音乐；离开页面时停止播放，并记住各页面独立的静音设置。 */
-export function PageMusic({ src, storageKey, areaName }: PageMusicProps) {
+export function PageMusic({ src, storageKey, areaName, volume = 0.25 }: PageMusicProps) {
   const audioRef = useRef<HTMLAudioElement>(null);
+  const pausedForRitual = useRef(false);
   const [muted, setMuted] = useState(() => {
     try {
       return window.localStorage.getItem(storageKey) === "true";
@@ -27,13 +31,15 @@ export function PageMusic({ src, storageKey, areaName }: PageMusicProps) {
       window.removeEventListener("pointerdown", retryAfterUserGesture);
       window.removeEventListener("keydown", retryAfterUserGesture);
     };
-    const start = () => {
+    const start = (fadeIn = false) => {
+      if (pausedForRitual.current) return;
       audio.muted = false;
-      audio.volume = 0.25;
+      audio.volume = fadeIn ? 0 : volume;
       void audio.play()
         .then(() => {
           setIsPlaying(true);
           removeGestureRetries();
+          if (fadeIn) void fade(audio, volume, 1500);
         })
         .catch(() => {
           setIsPlaying(false);
@@ -44,6 +50,20 @@ export function PageMusic({ src, storageKey, areaName }: PageMusicProps) {
     function retryAfterUserGesture() {
       start();
     }
+    const handleRitualAudio = (event: Event) => {
+      const detail = (event as CustomEvent<RitualAudioDetail>).detail;
+      if (detail.active) {
+        pausedForRitual.current = true;
+        removeGestureRetries();
+        audio.pause();
+        setIsPlaying(false);
+        return;
+      }
+
+      pausedForRitual.current = false;
+      if (detail.handoff && !muted) start(true);
+    };
+    window.addEventListener(RITUAL_AUDIO_EVENT, handleRitualAudio);
 
     if (muted) {
       removeGestureRetries();
@@ -55,10 +75,11 @@ export function PageMusic({ src, storageKey, areaName }: PageMusicProps) {
 
     return () => {
       removeGestureRetries();
+      window.removeEventListener(RITUAL_AUDIO_EVENT, handleRitualAudio);
       audio.pause();
       setIsPlaying(false);
     };
-  }, [muted, src]);
+  }, [muted, src, volume]);
 
   const toggleMuted = () => {
     const nextMuted = !muted;

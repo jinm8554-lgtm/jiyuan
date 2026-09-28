@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import { fade } from "@/audio/fade";
+import { isKeepMusicMuted, KEEP_MUSIC_VOLUME, publishRitualAudio } from "@/audio/ritualMusic";
 import { Button } from "@/components/ui/button";
 import { trpc } from "@/lib/trpc";
 import { WELCOME_RITUAL_COPY, WELCOME_SCREENS } from "@/welcomeScript";
@@ -37,6 +39,7 @@ export function WelcomeRitual({ onActivityChange }: WelcomeRitualProps) {
   const [fallbackLineVisible, setFallbackLineVisible] = useState(false);
   const [submitError, setSubmitError] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+  const welcomeAudioRef = useRef<HTMLAudioElement>(null);
   const timers = useRef<number[]>([]);
   const reducedMotion = useReducedMotion();
 
@@ -57,6 +60,27 @@ export function WelcomeRitual({ onActivityChange }: WelcomeRitualProps) {
     onActivityChange(visible);
     return () => onActivityChange(false);
   }, [onActivityChange, visible]);
+
+  useEffect(() => {
+    if (!visible) return;
+    const audio = welcomeAudioRef.current;
+    const playWelcomeMusic = () => {
+      if (!audio || isKeepMusicMuted()) return;
+      audio.muted = false;
+      audio.volume = KEEP_MUSIC_VOLUME;
+      void audio.play().catch(() => undefined);
+    };
+
+    publishRitualAudio({ active: true });
+    playWelcomeMusic();
+    window.addEventListener("click", playWelcomeMusic);
+    window.addEventListener("keydown", playWelcomeMusic);
+    return () => {
+      window.removeEventListener("click", playWelcomeMusic);
+      window.removeEventListener("keydown", playWelcomeMusic);
+      audio?.pause();
+    };
+  }, [visible]);
 
   useEffect(() => {
     return () => {
@@ -86,9 +110,15 @@ export function WelcomeRitual({ onActivityChange }: WelcomeRitualProps) {
     if (closing) return;
     setClosing(true);
     schedule(
-      () => {
-        setDismissed(true);
+      async () => {
         onActivityChange(false);
+        publishRitualAudio({ active: false, handoff: true });
+        const audio = welcomeAudioRef.current;
+        if (audio) {
+          await fade(audio, 0, 1500);
+          audio.pause();
+        }
+        setDismissed(true);
         void utils.keep.introStatus.invalidate();
       },
       reducedMotion ? 0 : 600
@@ -127,6 +157,9 @@ export function WelcomeRitual({ onActivityChange }: WelcomeRitualProps) {
         if (event.key === "Escape") event.preventDefault();
       }}
     >
+      <audio ref={welcomeAudioRef} loop preload="metadata">
+        <source src="/audio/welcome_ritual.mp3" type="audio/mpeg" />
+      </audio>
       <section className="flex h-full w-full max-w-3xl flex-col overflow-hidden rounded-sm border border-[color:var(--gold-600)]/60 bg-[color:var(--ink-950)] shadow-2xl shadow-black/60 sm:h-auto sm:max-h-[92svh]">
         <div className="relative min-h-0 flex-1 overflow-hidden">
           <div

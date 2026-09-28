@@ -117,7 +117,7 @@ export default function Keep() {
   if (home.isLoading) {
     return (
       <>
-        <PageMusic src="/aetherfall-assets/desolate-dusk.mp3" storageKey="aetherfall:keep-music-muted" areaName="主城" />
+        <PageMusic src="/aetherfall-assets/desolate-dusk.mp3" storageKey="aetherfall:keep-music-muted" areaName="主城" volume={0.2} />
         <PageSection title="灰隼堡 · 主城">
           <SkeletonState rows={4} />
         </PageSection>
@@ -128,7 +128,7 @@ export default function Keep() {
   if (home.isError || !data) {
     return (
       <>
-        <PageMusic src="/aetherfall-assets/desolate-dusk.mp3" storageKey="aetherfall:keep-music-muted" areaName="主城" />
+        <PageMusic src="/aetherfall-assets/desolate-dusk.mp3" storageKey="aetherfall:keep-music-muted" areaName="主城" volume={0.2} />
         <PageSection title="灰隼堡 · 主城">
           <ErrorState message={home.error?.message ?? "主城数据读取失败"} onRetry={() => home.refetch()} />
         </PageSection>
@@ -141,7 +141,7 @@ export default function Keep() {
 
   return (
     <>
-      <PageMusic src="/aetherfall-assets/desolate-dusk.mp3" storageKey="aetherfall:keep-music-muted" areaName="主城" />
+      <PageMusic src="/aetherfall-assets/desolate-dusk.mp3" storageKey="aetherfall:keep-music-muted" areaName="主城" volume={0.2} />
       <PageSection title={`${data.lord.keepName} · 主城`} eyebrow={`第 ${data.lord.chapter} 章 · 领主 ${data.lord.name} · 城堡 ${data.lord.level} 级`}>
       {/* 当前目标条 */}
       <Panel gold className="mb-4 p-4">
