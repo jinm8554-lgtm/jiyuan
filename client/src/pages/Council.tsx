@@ -16,6 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
+import { usePlayerName } from "@/hooks/usePlayerName";
 import { PageSection } from "@/components/game/GameShell";
 import { Avatar, EmptyState, ErrorState, GoldRule, Panel, RarityBadge, SectionTitle, SkeletonState, Tag } from "@/components/game/ui";
 
@@ -62,6 +63,7 @@ function groupMessagesByTurn(messages: MessageView[]) {
 export default function Council() {
   const utils = trpc.useUtils();
   const cast = trpc.ai.cast.useQuery();
+  const playerName = usePlayerName();
 
   const [conversationId, setConversationId] = useState<number | null>(null);
   const [presentKeys, setPresentKeys] = useState<string[]>([]);
@@ -281,6 +283,7 @@ const [scene, setScene] = useState<SceneKey>("council");
             <img src={COUNCIL_SCENE} alt="议事厅" className="absolute inset-0 h-full w-full object-cover opacity-30" onError={(event) => { event.currentTarget.style.display = "none"; }} />
             <div className="absolute inset-0 bg-gradient-to-t from-[color:var(--ink-950)] via-[color:var(--ink-950)]/75 to-[color:var(--ink-950)]/40" />
             <div className="relative flex h-[58vh] min-h-[380px] flex-col p-4">
+              <p className="mb-3 text-sm text-[color:var(--gold-300)]">{playerName}，议事厅已经备好，众人正在等候你的决定。</p>
               {/* 在场角色条 */}
               <div className="mb-3 flex items-center gap-2 overflow-x-auto pb-1">
                 <span className="text-caption shrink-0">在场</span>

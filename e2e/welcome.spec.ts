@@ -25,6 +25,8 @@ test("首次仪式隔离主界面，空名显示兜底台词并完成", async ({
   await page.setViewportSize({ width: 1920, height: 1080 });
   const ritual = await loginAsNewPlayer(page, `e2e-welcome-${Date.now()}`);
   await expect(ritual).toBeVisible();
+  await expect(ritual.locator("audio")).toHaveAttribute("loop", "");
+  await expect(ritual.locator("img")).toHaveJSProperty("naturalWidth", 1916);
 
   const shell = page.locator("header").locator("..");
   await expect(shell).toHaveAttribute("aria-hidden", "true");
@@ -39,6 +41,19 @@ test("首次仪式隔离主界面，空名显示兜底台词并完成", async ({
   await expect(ritual).toBeHidden();
   await page.reload();
   await expect(ritual).toBeHidden();
+
+  await page.getByRole("link", { name: "编年史" }).click();
+  await expect(page).toHaveURL(/\/chronicle$/);
+  await page.getByRole("button", { name: /序章 · 第零章/ }).click();
+  const replay = page.getByRole("dialog", { name: "序章 · 第零章" });
+  await expect(replay).toBeVisible();
+  await expect(replay).toHaveCSS("backdrop-filter", "none");
+  await replay.getByRole("button", { name: "继续" }).click();
+  await replay.getByRole("button", { name: "继续" }).click();
+  await replay.getByRole("button", { name: "继续" }).click();
+  await expect(replay.getByText(/^—— /)).toBeVisible();
+  await replay.getByRole("button", { name: "关闭序章" }).click();
+  await expect(replay).toBeHidden();
 });
 
 test("首次仪式在 375px 宽度内显示，移动导航仍停在视口底部", async ({
@@ -51,6 +66,7 @@ test("首次仪式在 375px 宽度内显示，移动导航仍停在视口底部"
   );
   const panel = ritual.locator("section");
   await expect(panel).toBeVisible();
+  await expect(ritual.locator("img")).toHaveJSProperty("naturalWidth", 1122);
   const box = await panel.boundingBox();
   expect(box).not.toBeNull();
   expect(box!.x).toBeGreaterThanOrEqual(0);

@@ -10,18 +10,23 @@ import { Button } from "@/components/ui/button";
 import { trpc } from "@/lib/trpc";
 import { PageSection } from "@/components/game/GameShell";
 import { FalconCrest } from "@/components/game/GameIcons";
+import { PageMusic } from "@/components/game/PageMusic";
+import { PrologueReplay } from "@/components/welcome/PrologueReplay";
 import { AllAgesNote, ErrorState, GoldRule, Panel, SectionTitle, SkeletonState, Tag } from "@/components/game/ui";
 import { useAuth } from "@/_core/hooks/useAuth";
+import { usePlayerName } from "@/hooks/usePlayerName";
 
 const WORLD_ART = "/aetherfall-assets/worldmap_72ac880b.jpg";
 
 export default function Chronicle() {
   const { isAuthenticated } = useAuth();
+  const playerName = usePlayerName(isAuthenticated);
   const lore = trpc.meta.lore.useQuery();
   const chapters = trpc.meta.chapters.useQuery();
   const utils = trpc.useUtils();
   const questHistory = trpc.keep.questHistory.useQuery(undefined, { enabled: isAuthenticated, retry: false });
   const [claimingQuest, setClaimingQuest] = useState<string | null>(null);
+  const [prologueOpen, setPrologueOpen] = useState(false);
   const claimQuest = trpc.keep.claimQuest.useMutation({
     onMutate: (input) => setClaimingQuest(input.questKey),
     onSuccess: async () => {
@@ -34,24 +39,32 @@ export default function Chronicle() {
 
   if (lore.isLoading) {
     return (
-      <PageSection title="编年史">
-        <SkeletonState rows={5} />
-      </PageSection>
+      <>
+        <PageMusic src="/aetherfall-assets/chronicle-theme.mp3" storageKey="aetherfall:chronicle-music-muted" areaName="编年史" />
+        <PageSection title="编年史">
+          <SkeletonState rows={5} />
+        </PageSection>
+      </>
     );
   }
 
   if (lore.isError || !lore.data) {
     return (
-      <PageSection title="编年史">
-        <ErrorState message={lore.error?.message ?? "世界观读取失败"} onRetry={() => lore.refetch()} />
-      </PageSection>
+      <>
+        <PageMusic src="/aetherfall-assets/chronicle-theme.mp3" storageKey="aetherfall:chronicle-music-muted" areaName="编年史" />
+        <PageSection title="编年史">
+          <ErrorState message={lore.error?.message ?? "世界观读取失败"} onRetry={() => lore.refetch()} />
+        </PageSection>
+      </>
     );
   }
 
   const data = lore.data;
 
   return (
-    <PageSection
+    <>
+      <PageMusic src="/aetherfall-assets/chronicle-theme.mp3" storageKey="aetherfall:chronicle-music-muted" areaName="编年史" />
+      <PageSection
       title="编年史"
       eyebrow={`${data.world} · ${data.era}`}
       actions={
@@ -91,6 +104,15 @@ export default function Chronicle() {
             <SectionTitle eyebrow="Six Chapters" title="章节编年" />
             <GoldRule />
             <ol className="space-y-2">
+              <li>
+                <button type="button" className="flex w-full gap-3 rounded-sm border border-[color:var(--gold-600)]/60 bg-[color:var(--ink-800)]/55 p-2.5 text-left hover:border-[color:var(--gold-400)]" onClick={() => setPrologueOpen(true)}>
+                  <span className="text-display shrink-0 text-lg text-[color:var(--gold-500)]">00</span>
+                  <span className="min-w-0">
+                    <span className="text-display block text-sm text-[color:var(--parchment)]">序章 · 第零章</span>
+                    <span className="mt-0.5 block text-xs leading-relaxed text-[color:var(--parchment-muted)]">灰隼堡的门前，写下第一个被记住的名字。</span>
+                  </span>
+                </button>
+              </li>
               {chapters.data?.chapters.map((chapter) => {
                 const sceneCount = (chapters.data?.scenes ?? []).filter((scene) => scene.chapter === chapter.chapter).length;
                 return (
@@ -215,6 +237,8 @@ export default function Chronicle() {
           </Panel>
         </div>
       </div>
-    </PageSection>
+      </PageSection>
+      {prologueOpen ? <PrologueReplay playerName={playerName} onClose={() => setPrologueOpen(false)} /> : null}
+    </>
   );
 }
