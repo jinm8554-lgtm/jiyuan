@@ -5,21 +5,33 @@ import {
   adminAuditLogs,
   aiCallLogs,
   aiConfigs,
+  aiConversations,
+  aiMessages,
   aiModels,
   apiTokens,
   backupRecords,
+  battleLogs,
+  battles,
   buildings,
   characters,
   domainEvents,
   equipments,
   gameProfiles,
+  nodeStates,
   playerCharacters,
+  playerEquipments,
+  profileBuildings,
+  profilePity,
+  profileQuests,
+  profileStoryFlags,
   quests,
   recruitHistories,
   recruitPools,
+  regionStates,
   regions,
   skills,
   storyScenes,
+  teams,
   users,
   worldNodes,
 } from "../../drizzle/schema";
@@ -32,7 +44,6 @@ import { storagePut } from "../storage";
 import { ENV } from "../_core/env";
 import { adminProcedure, router } from "../_core/trpc";
 import { requireAdmin } from "./_shared";
-import { createHash, randomBytes } from "node:crypto";
 
 const secretOf = () => process.env.JWT_SECRET ?? ENV.cookieSecret ?? "aetherfall-dev-secret";
 
@@ -1045,7 +1056,7 @@ export const adminRouter = router({
       }));
     }),
 
-  /* ------------------------ 会员与 Token ------------------------ */
+  /* ------------------------ 会员管理 ------------------------ */
   listMembers: adminProcedure
     .input(z.object({ search: z.string().max(64).optional(), page: z.number().int().min(1).max(200).default(1), pageSize: z.number().int().min(5).max(50).default(20) }).optional())
     .query(async ({ ctx, input }) => {
@@ -1064,7 +1075,6 @@ export const adminRouter = router({
 
       const profiles = await db.select().from(gameProfiles);
       const profileMap = new Map(profiles.map((profile) => [profile.userId, profile]));
-      const tokens = await db.select().from(apiTokens);
       const page = input?.page ?? 1;
       const pageSize = input?.pageSize ?? 20;
       const paged = rows.slice((page - 1) * pageSize, page * pageSize);
@@ -1085,7 +1095,6 @@ export const adminRouter = router({
             banned: row.banned,
             createdAt: row.createdAt,
             lastSignedIn: row.lastSignedIn,
-            tokenCount: tokens.filter((token) => token.userId === row.id && !token.revokedAt).length,
             profile: profile
               ? { id: profile.id, lordName: profile.lordName, keepName: profile.keepName, chapter: profile.chapter, keepLevel: profile.keepLevel, renown: profile.renown, createdAt: profile.createdAt }
               : null,
@@ -1134,55 +1143,56 @@ export const adminRouter = router({
       return { ok: true };
     }),
 
-  listTokens: adminProcedure.query(async ({ ctx }) => {
-    requireAdmin(ctx);
-    const db = await getDb();
-    if (!db) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "数据库连接不可用" });
-    const rows = await db.select().from(apiTokens).orderBy(desc(apiTokens.id)).limit(200);
-    return rows.map((row) => ({
-      id: row.id,
-      userId: row.userId,
-      name: row.name,
-      tokenPrefix: row.tokenPrefix,
-      scopes: row.scopes,
-      expiresAt: row.expiresAt,
-      lastUsedAt: row.lastUsedAt,
-      revokedAt: row.revokedAt,
-      createdAt: row.createdAt,
-    }));
-  }),
-
-  createToken: adminProcedure
-    .input(z.object({ userId: z.number().int().positive(), name: z.string().min(1).max(96), scopes: z.array(z.string().max(32)).max(10), expiresInDays: z.number().int().min(1).max(365).optional() }))
+  /**
+   * 永久删除玩家账号及其游戏存档。审计记录会保留，便于追查后台操作；
+   * 当前管理员不能删除自己，避免误操作导致没有 GM 可用。
+   */
+  deleteMember: adminProcedure
+    .input(z.object({ userId: z.number().int().positive() }))
     .mutation(async ({ ctx, input }) => {
-      requireAdmin(ctx);
+      const admin = requireAdmin(ctx);
+      if (input.userId === admin.id) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "不能删除当前登录的管理员账号" });
+      }
+
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "数据库连接不可用" });
-      const plain = `aef_${randomBytes(24).toString("base64url")}`;
-      const [inserted] = await db
-        .insert(apiTokens)
-        .values({
-          userId: input.userId,
-          name: input.name,
-          tokenPrefix: plain.slice(0, 12),
-          tokenHash: createHash("sha256").update(plain).digest("hex"),
-          scopes: input.scopes.length > 0 ? input.scopes : ["read"],
-          expiresAt: input.expiresInDays ? new Date(Date.now() + input.expiresInDays * 86400000) : null,
-        })
-        .$returningId();
-      await audit(ctx, "token.create", "token", String(inserted.id), { userId: input.userId, scopes: input.scopes });
-      // 明文 Token 仅本次返回，永不落库
-      return { ok: true, id: inserted.id, token: plain, warning: "请立即复制保存，该 Token 不会再次显示" };
-    }),
+      const [target] = await db.select({ id: users.id, name: users.name, openId: users.openId }).from(users).where(eq(users.id, input.userId)).limit(1);
+      if (!target) throw new TRPCError({ code: "NOT_FOUND", message: "账号不存在或已被删除" });
 
-  revokeToken: adminProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
-    requireAdmin(ctx);
-    const db = await getDb();
-    if (!db) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "数据库连接不可用" });
-    await db.update(apiTokens).set({ revokedAt: new Date() }).where(eq(apiTokens.id, input.id));
-    await audit(ctx, "token.revoke", "token", String(input.id));
-    return { ok: true };
-  }),
+      const profiles = await db.select({ id: gameProfiles.id }).from(gameProfiles).where(eq(gameProfiles.userId, input.userId));
+      const profileIds = profiles.map((profile) => profile.id);
+
+      await db.transaction(async (tx) => {
+        if (profileIds.length > 0) {
+          await tx.delete(aiMessages).where(inArray(aiMessages.profileId, profileIds));
+          await tx.delete(aiCallLogs).where(inArray(aiCallLogs.profileId, profileIds));
+          await tx.delete(aiConversations).where(inArray(aiConversations.profileId, profileIds));
+          await tx.delete(battleLogs).where(inArray(battleLogs.profileId, profileIds));
+          await tx.delete(battles).where(inArray(battles.profileId, profileIds));
+          await tx.delete(recruitHistories).where(inArray(recruitHistories.profileId, profileIds));
+          await tx.delete(profilePity).where(inArray(profilePity.profileId, profileIds));
+          await tx.delete(profileStoryFlags).where(inArray(profileStoryFlags.profileId, profileIds));
+          await tx.delete(profileQuests).where(inArray(profileQuests.profileId, profileIds));
+          await tx.delete(nodeStates).where(inArray(nodeStates.profileId, profileIds));
+          await tx.delete(regionStates).where(inArray(regionStates.profileId, profileIds));
+          await tx.delete(profileBuildings).where(inArray(profileBuildings.profileId, profileIds));
+          await tx.delete(teams).where(inArray(teams.profileId, profileIds));
+          await tx.delete(playerEquipments).where(inArray(playerEquipments.profileId, profileIds));
+          await tx.delete(playerCharacters).where(inArray(playerCharacters.profileId, profileIds));
+          await tx.delete(gameProfiles).where(inArray(gameProfiles.id, profileIds));
+        }
+        await tx.delete(apiTokens).where(eq(apiTokens.userId, input.userId));
+        await tx.delete(users).where(eq(users.id, input.userId));
+      });
+
+      await audit(ctx, "member.delete", "user", String(input.userId), {
+        name: target.name,
+        openId: target.openId,
+        deletedProfileCount: profileIds.length,
+      });
+      return { ok: true, deletedName: target.name ?? target.openId, deletedProfileCount: profileIds.length };
+    }),
 
   /* ------------------------ 备份 / 恢复 ------------------------ */
   listBackups: adminProcedure.query(async ({ ctx }) => {

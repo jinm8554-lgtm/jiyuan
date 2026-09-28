@@ -60,11 +60,19 @@ export const JOB_ROLE_TEXT: Record<string, string> = {
 export const RESOURCE_NAME: Record<string, string> = {
   gold: "金币",
   food: "粮食",
-  wood: "木料",
+  wood: "木材",
   iron: "铁矿",
   aether: "星辉",
   renown: "声望",
+  stamina: "体力",
+  staminaMax: "体力上限",
+  recruitShards: "星辉信物",
 };
+
+/** 资源内部字段仅用于接口和存档；所有面向玩家的文本都应使用中文名称。 */
+export function resourceName(kind: string) {
+  return RESOURCE_NAME[kind] ?? kind;
+}
 
 export function Panel({ className, children, gold = false, ...rest }: { className?: string; children: ReactNode; gold?: boolean } & React.HTMLAttributes<HTMLDivElement>) {
   return (
@@ -131,7 +139,7 @@ export function ResourcePill({ kind, value, suffix, dim = false, className }: { 
         dim ? "text-[color:var(--parchment-muted)]" : "text-[color:var(--parchment)]",
         className,
       )}
-      title={RESOURCE_NAME[kind] ?? kind}
+      title={resourceName(kind)}
     >
       <Icon size={13} className={kind === "aether" ? "text-[color:var(--aether-300)]" : "text-[color:var(--gold-500)]"} />
       <span className="text-numeric font-medium">{typeof value === "number" ? value.toLocaleString("zh-CN") : value}</span>

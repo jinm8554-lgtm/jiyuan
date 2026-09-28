@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils";
 import { PageSection } from "@/components/game/GameShell";
 import { RESOURCE_ICON, AetherRune, BuildingIcon } from "@/components/game/GameIcons";
 import { PageMusic } from "@/components/game/PageMusic";
-import { AllAgesNote, Avatar, EmptyState, ErrorState, GoldRule, LoadingState, Panel, ProgressBar, RarityBadge, ResourcePill, SectionTitle, SkeletonState, Tag } from "@/components/game/ui";
+import { AllAgesNote, Avatar, EmptyState, ErrorState, GoldRule, LoadingState, Panel, ProgressBar, RarityBadge, resourceName, ResourcePill, SectionTitle, SkeletonState, Tag } from "@/components/game/ui";
 
 const KEEP_SCENE = "/aetherfall-assets/keep_home_34f36c55.jpg";
 
@@ -92,7 +92,7 @@ export default function Keep() {
 
   const resolveEvent = trpc.keep.resolveEvent.useMutation({
     onSuccess: async (result) => {
-      toast.success("你的决定已经记录在案", { description: result.effect ? Object.entries(result.effect).map(([key, value]) => `${key} ${value > 0 ? "+" : ""}${value}`).join("、") : undefined });
+      toast.success("你的决定已经记录在案", { description: result.effect ? Object.entries(result.effect).map(([key, value]) => `${resourceName(key)} ${value > 0 ? "+" : ""}${value}`).join("、") : undefined });
       await Promise.all([utils.keep.home.invalidate(), utils.keep.resources.invalidate(), utils.keep.quests.invalidate()]);
     },
     onError: (error) => toast.error("处理事件失败", { description: error.message }),
@@ -101,7 +101,7 @@ export default function Keep() {
   const claimQuest = trpc.keep.claimQuest.useMutation({
     onMutate: (input) => setClaimingQuest(input.questKey),
     onSuccess: async (result) => {
-      toast.success("奖励已入库", { description: result.rewards ? Object.entries(result.rewards).map(([key, value]) => `${key} +${value}`).join("、") : undefined });
+      toast.success("奖励已入库", { description: result.rewards ? Object.entries(result.rewards).map(([key, value]) => `${resourceName(key)} +${value}`).join("、") : undefined });
       await Promise.all([utils.keep.home.invalidate(), utils.keep.quests.invalidate(), utils.keep.resources.invalidate()]);
     },
     onError: (error) => toast.error("领取失败", { description: error.message }),
@@ -326,7 +326,7 @@ export default function Keep() {
               <p className="mb-3 text-xs text-[color:var(--parchment-muted)]">
                 离线 {Math.round(data.accrual.secondsElapsed / 60)} 分钟期间产出：
                 <span className="text-[color:var(--verdant)]">
-                  {Object.entries(data.accrual.gains).map(([key, value]) => `${key} +${value}`).join("、")}
+                  {Object.entries(data.accrual.gains).map(([key, value]) => `${resourceName(key)} +${value}`).join("、")}
                 </span>
               </p>
             ) : (
@@ -342,7 +342,7 @@ export default function Keep() {
                     <div className="flex items-center justify-between text-xs">
                       <span className="flex items-center gap-1.5 text-[color:var(--parchment-dim)]">
                         <Icon size={13} className={key === "aether" ? "text-[color:var(--aether-300)]" : "text-[color:var(--gold-500)]"} />
-                        {key}
+                        {resourceName(key)}
                       </span>
                       <span className={cn("text-numeric", isCapped ? "text-[color:var(--ember-400)]" : "text-[color:var(--parchment)]")}>{value.toLocaleString("zh-CN")}</span>
                     </div>
@@ -371,7 +371,7 @@ export default function Keep() {
                     <span className="block text-[color:var(--parchment)]">{choice.label ?? `选项 ${index + 1}`}</span>
                     {choice.effect ? (
                       <span className="mt-0.5 block text-[0.68rem] text-[color:var(--parchment-muted)]">
-                        {Object.entries(choice.effect).map(([key, value]) => `${key} ${value > 0 ? "+" : ""}${value}`).join(" · ")}
+                        {Object.entries(choice.effect).map(([key, value]) => `${resourceName(key)} ${value > 0 ? "+" : ""}${value}`).join(" · ")}
                       </span>
                     ) : null}
                   </button>
@@ -499,7 +499,7 @@ export default function Keep() {
                                 key={key}
                                 className={cn("rounded-sm border px-2 py-1 text-xs", enough ? "border-[color:var(--verdant)]/50 text-[color:var(--verdant)]" : "border-[color:var(--blood)]/50 text-[color:var(--blood)]")}
                               >
-                                {key} {Number(value).toLocaleString("zh-CN")} / 持有 {owned.toLocaleString("zh-CN")}
+                                {resourceName(key)} {Number(value).toLocaleString("zh-CN")} / 持有 {owned.toLocaleString("zh-CN")}
                               </span>
                             );
                           })}

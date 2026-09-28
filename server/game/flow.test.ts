@@ -2,7 +2,7 @@
  * 核心流程端到端测试（接口测试 + 核心流程测试）
  *
  * 覆盖：建档 → 主城经营 → 招募 → 编队 → 养成 → 世界探索与战斗结算 → 任务推进
- *        → 剧情选项 → AI 议事的在场角色约束 → GM 后台配置同步 → 备份恢复 → Token 安全
+ *        → 剧情选项 → AI 议事的在场角色约束 → GM 后台配置同步 → 备份恢复
  *
  * 说明：本测试直接调用 tRPC router 的 caller，与真实 HTTP 请求共用同一套
  * 中间件、入参校验、权限检查与数据库访问路径，因此等价于接口层端到端验证。
@@ -13,7 +13,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { appRouter } from "../routers";
 import { getDb } from "../db";
 import type { TrpcContext } from "../_core/context";
-import { apiTokens, battles, characters, gameProfiles, nodeStates, playerCharacters, playerEquipments, profileBuildings, regionStates, teams, users } from "../../drizzle/schema";
+import { battles, characters, gameProfiles, nodeStates, playerCharacters, playerEquipments, profileBuildings, regionStates, teams, users } from "../../drizzle/schema";
 import { accrueProfile } from "../game/service";
 
 const TEST_OPEN_ID = "vitest-flow-user";
@@ -50,7 +50,6 @@ flowDescribe("核心流程：从建档到征服", () => {
       await db.delete(profileBuildings).where(inArray(profileBuildings.profileId, ids));
       await db.delete(gameProfiles).where(inArray(gameProfiles.id, ids));
     }
-    await db.delete(apiTokens).where(inArray(apiTokens.userId, userIds));
     await db.delete(users).where(inArray(users.id, userIds));
   }
 
@@ -630,6 +629,8 @@ flowDescribe("核心流程：从建档到征服", () => {
     const conversation = await player.ai.conversation({ conversationId: session.conversationId });
     expect(conversation.messages.length).toBeGreaterThan(0);
     expect(conversation.messages.some((message) => message.role === "player" && message.content === "聊聊各自的过去吧。")).toBe(true);
+    await expect(player.ai.closeConversation({ conversationId: session.conversationId })).resolves.toMatchObject({ ok: true });
+    await expect(player.ai.talk({ conversationId: session.conversationId, message: "会谈结束后不应继续发言。", presentKeys: selected })).rejects.toMatchObject({ code: "BAD_REQUEST" });
     await expect(player.ai.deleteConversation({ conversationId: session.conversationId })).resolves.toMatchObject({ ok: true });
     await expect(player.ai.conversation({ conversationId: session.conversationId })).rejects.toMatchObject({ code: "NOT_FOUND" });
   }, 150_000);
@@ -734,19 +735,29 @@ flowDescribe("核心流程：从建档到征服", () => {
     expect(String(bogus.reason ?? "")).toContain("version");
   }, 120_000);
 
-  it("14. Token 安全：明文只返回一次，数据库仅存哈希与前缀，可吊销", async () => {
-    const issued = await admin.admin.createToken({ userId: playerUserId, name: "流程测试 Token", scopes: ["read"], expiresInDays: 7 });
-    expect(issued.token.startsWith("aef_")).toBe(true);
+  it("14. GM 账号删除：清除目标账号及其存档，且禁止删除当前管理员", async () => {
+    const openId = "vitest-flow-delete-member";
+    const [inserted] = await db.insert(users).values({
+      openId,
+      name: "删除测试账号",
+      loginMethod: "local",
+      role: "user",
+    }).$returningId();
 
-    const rows = await db.select().from(apiTokens).where(eq(apiTokens.id, issued.id));
-    expect(rows).toHaveLength(1);
-    expect(rows[0].tokenHash).not.toContain(issued.token);
-    expect(rows[0].tokenHash.length).toBeGreaterThanOrEqual(64);
-    expect(issued.token.startsWith(rows[0].tokenPrefix)).toBe(true);
+    try {
+      const [victim] = await db.select().from(users).where(eq(users.id, inserted.id)).limit(1);
+      expect(victim).toBeTruthy();
+      const victimCaller = appRouter.createCaller(makeCtx(victim));
+      await victimCaller.keep.home();
 
-    await admin.admin.revokeToken({ id: issued.id });
-    const revoked = await db.select().from(apiTokens).where(eq(apiTokens.id, issued.id));
-    expect(revoked[0].revokedAt).not.toBeNull();
+      const removed = await admin.admin.deleteMember({ userId: inserted.id });
+      expect(removed.ok).toBe(true);
+      expect((await db.select().from(users).where(eq(users.id, inserted.id))).length).toBe(0);
+      expect((await db.select().from(gameProfiles).where(eq(gameProfiles.userId, inserted.id))).length).toBe(0);
+      await expect(admin.admin.deleteMember({ userId: adminUserId })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    } finally {
+      await db.delete(users).where(eq(users.id, inserted.id));
+    }
   }, 90_000);
 
   it("15. 审计日志：后台关键操作全部留痕（可追溯）", async () => {
@@ -775,7 +786,7 @@ flowDescribe("核心流程：从建档到征服", () => {
     expect(actions.has("resources.grant")).toBe(true);
     expect(actions.has("resources.set")).toBe(true);
     expect(actions.has("backup.create")).toBe(true);
-    expect(actions.has("token.create")).toBe(true);
+    expect(actions.has("member.delete")).toBe(true);
     // 审计日志必须记录操作者，便于追责
     expect(logs.every((log) => log.adminUserId > 0)).toBe(true);
   }, 60_000);

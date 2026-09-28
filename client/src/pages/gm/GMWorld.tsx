@@ -13,7 +13,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import { GMShell } from "@/components/game/GMShell";
-import { EmptyState, ErrorState, GoldRule, Panel, SectionTitle, SkeletonState, Tag } from "@/components/game/ui";
+import { EmptyState, ErrorState, GoldRule, Panel, resourceName, SectionTitle, SkeletonState, Tag } from "@/components/game/ui";
 import { JOB_NAME } from "@/components/game/ui";
 
 type NodeRow = {
@@ -190,12 +190,12 @@ export default function GMWorld() {
                       .filter(([, value]) => typeof value === "number" && Number(value) > 0)
                       .map(([key, value]) => (
                         <span key={key} className="rounded-sm border border-[color:var(--gold-600)]/40 px-1.5 py-0.5 text-[0.6rem] text-[color:var(--gold-300)]">
-                          {key} +{Number(value)}
+                          {resourceName(key)} +{Number(value)}
                         </span>
                       ))}
                     {Object.entries(node.tradeYield ?? {}).map(([key, value]) => (
                       <span key={`trade-${key}`} className="rounded-sm border border-[color:var(--verdant)]/40 px-1.5 py-0.5 text-[0.6rem] text-[color:var(--verdant)]">
-                        贸易 {key} {value}/h
+                        贸易 {resourceName(key)} {value}/h
                       </span>
                     ))}
                   </div>
@@ -261,15 +261,15 @@ export default function GMWorld() {
 
               <div className="grid gap-3 sm:grid-cols-2">
                 <div>
-                  <Label className="text-[0.68rem] text-[color:var(--parchment-muted)]">常规奖励（JSON）</Label>
+                  <Label className="text-[0.68rem] text-[color:var(--parchment-muted)]">常规奖励（JSON；资源字段：金币 gold、粮食 food、木材 wood、铁矿 iron、星辉 aether）</Label>
                   <Textarea value={nodeEditor.rewardJson} onChange={(event) => setNodeEditor({ ...nodeEditor, rewardJson: event.target.value })} rows={4} className="mt-1 resize-none border-[color:var(--ink-500)]/70 bg-[color:var(--ink-800)]/70 font-mono text-[0.64rem] text-[color:var(--parchment)]" />
                 </div>
                 <div>
-                  <Label className="text-[0.68rem] text-[color:var(--parchment-muted)]">首通奖励（JSON）</Label>
+                  <Label className="text-[0.68rem] text-[color:var(--parchment-muted)]">首通奖励（JSON；资源字段同上）</Label>
                   <Textarea value={nodeEditor.firstRewardJson} onChange={(event) => setNodeEditor({ ...nodeEditor, firstRewardJson: event.target.value })} rows={4} className="mt-1 resize-none border-[color:var(--ink-500)]/70 bg-[color:var(--ink-800)]/70 font-mono text-[0.64rem] text-[color:var(--parchment)]" />
                 </div>
                 <div>
-                  <Label className="text-[0.68rem] text-[color:var(--parchment-muted)]">贸易产出（JSON，每小时）</Label>
+                  <Label className="text-[0.68rem] text-[color:var(--parchment-muted)]">贸易产出（JSON，每小时；资源字段同上）</Label>
                   <Textarea value={nodeEditor.tradeJson} onChange={(event) => setNodeEditor({ ...nodeEditor, tradeJson: event.target.value })} rows={3} className="mt-1 resize-none border-[color:var(--ink-500)]/70 bg-[color:var(--ink-800)]/70 font-mono text-[0.64rem] text-[color:var(--parchment)]" />
                 </div>
                 <div>

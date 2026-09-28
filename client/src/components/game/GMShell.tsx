@@ -20,7 +20,7 @@ export const GM_NAV = [
   { path: "/gm/content", label: "装备与技能", icon: Package, hint: "装备、技能与套装" },
   { path: "/gm/story", label: "任务与剧情", icon: ScrollText, hint: "任务 / 剧情 / 事件 / 建筑" },
   { path: "/gm/ai", label: "AI 配置", icon: Cpu, hint: "Base URL / 密钥 / 模型 / 测试 / 日志" },
-  { path: "/gm/members", label: "会员与 Token", icon: Users, hint: "会员管理 / API Token" },
+  { path: "/gm/members", label: "会员管理", icon: Users, hint: "权限 / 会员 / 封禁 / 账号" },
   { path: "/gm/ops", label: "备份与运维", icon: Database, hint: "备份恢复 / 配置同步 / 审计" },
 ] as const;
 

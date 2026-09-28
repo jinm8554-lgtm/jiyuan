@@ -120,9 +120,9 @@ type BattleRewardsView = {
 
 const REWARD_LABELS = [
   { key: "gold", label: "金币" },
-  { key: "food", label: "食物" },
+  { key: "food", label: "粮食" },
   { key: "wood", label: "木材" },
-  { key: "iron", label: "铁" },
+  { key: "iron", label: "铁矿" },
   { key: "aether", label: "星辉" },
   { key: "renown", label: "声望" },
   { key: "exp", label: "角色经验" },
@@ -240,6 +240,7 @@ export default function Battle() {
         void utils.battle.recent.invalidate();
         void utils.keep.home.invalidate();
         void utils.keep.resources.invalidate();
+        void utils.keep.quests.invalidate();
         void utils.world.map.invalidate();
       }
     },
@@ -280,6 +281,7 @@ export default function Battle() {
       void utils.battle.recent.invalidate();
       void utils.keep.home.invalidate();
       void utils.keep.resources.invalidate();
+      void utils.keep.quests.invalidate();
       void utils.world.map.invalidate();
     },
     onError: (error) => toast.error("自动推演失败", { description: error.message }),

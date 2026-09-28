@@ -11,7 +11,7 @@ import { trpc } from "@/lib/trpc";
 import { PageSection } from "@/components/game/GameShell";
 import { PageMusic } from "@/components/game/PageMusic";
 import { WelcomeRitual } from "@/components/welcome/WelcomeRitual";
-import { ErrorState, GoldRule, Panel, SectionTitle, SkeletonState, Tag } from "@/components/game/ui";
+import { ErrorState, GoldRule, Panel, resourceName, SectionTitle, SkeletonState, Tag } from "@/components/game/ui";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { usePlayerName } from "@/hooks/usePlayerName";
@@ -220,7 +220,7 @@ export default function Chronicle() {
                         {quest.description ? <p className="mt-1 text-xs leading-relaxed text-[color:var(--parchment-muted)]">{quest.description}</p> : null}
                         {rewards.length > 0 || items.length > 0 ? (
                           <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[0.68rem] text-[color:var(--gold-300)]">
-                            {rewards.map(([key, value]) => <span key={key}>{({ gold: "金币", food: "粮食", wood: "木料", iron: "铁矿", aether: "星辉", renown: "声望" } as Record<string, string>)[key] ?? key} +{Number(value).toLocaleString("zh-CN")}</span>)}
+                            {rewards.map(([key, value]) => <span key={key}>{resourceName(key)} +{Number(value).toLocaleString("zh-CN")}</span>)}
                             {items.map((item, index) => {
                               const entry = item as { equipKey?: string; quantity?: number };
                               return <span key={`${entry.equipKey ?? "item"}-${index}`}>装备 {entry.equipKey ?? "未知"} ×{entry.quantity ?? 1}</span>;

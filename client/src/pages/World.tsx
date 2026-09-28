@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import { PageSection } from "@/components/game/GameShell";
-import { AllAgesNote, EmptyState, ErrorState, GoldRule, Panel, ProgressBar, RarityBadge, SectionTitle, SkeletonState, Tag } from "@/components/game/ui";
+import { AllAgesNote, EmptyState, ErrorState, GoldRule, Panel, ProgressBar, RarityBadge, resourceName, SectionTitle, SkeletonState, Tag } from "@/components/game/ui";
 import { ELEMENT_ICON, JOB_ICON } from "@/components/game/GameIcons";
 import { PageMusic } from "@/components/game/PageMusic";
 import { JOB_NAME } from "@/components/game/ui";
@@ -59,7 +59,7 @@ export default function World() {
   const collectTrade = trpc.world.collectTrade.useMutation({
     onSuccess: async (result) => {
       if (result.hours <= 0) toast.info("暂时没有可收取的贸易收益");
-      else toast.success(`收取 ${result.hours} 小时贸易收益`, { description: `${Object.entries(result.gains).map(([key, value]) => `${key} +${value}`).join("、")}${result.autoDispatched ? " · 商队已自动续派" : " · 商队已返回"}` });
+      else toast.success(`收取 ${result.hours} 小时贸易收益`, { description: `${Object.entries(result.gains).map(([key, value]) => `${resourceName(key)} +${value}`).join("、")}${result.autoDispatched ? " · 商队已自动续派" : " · 商队已返回"}` });
       await Promise.all([utils.world.map.invalidate(), utils.keep.resources.invalidate()]);
     },
     onError: (error) => toast.error("收取失败", { description: error.message }),
@@ -75,7 +75,7 @@ export default function World() {
 
   const rushTrade = trpc.world.rushTrade.useMutation({
     onSuccess: async (result) => {
-      const gains = Object.entries(result.gains).map(([key, value]) => `${key} +${value}`).join("、") || "暂无可结算资源";
+      const gains = Object.entries(result.gains).map(([key, value]) => `${resourceName(key)} +${value}`).join("、") || "暂无可结算资源";
       toast.success("已立即结算 8 小时商队收益", { description: `${gains}${result.autoDispatched ? " · 商队已自动续派" : " · 商队已返回"}` });
       await Promise.all([utils.world.map.invalidate(), utils.keep.resources.invalidate()]);
     },
@@ -399,7 +399,7 @@ export default function World() {
                   .filter(([key, value]) => typeof value === "number" && Number(value) > 0 && key !== "items" && key !== "charKey")
                   .map(([key, value]) => (
                     <Tag key={key} tone="gold">
-                      {key} +{Number(value)}
+                      {resourceName(key)} +{Number(value)}
                     </Tag>
                   ))}
                 {activeNode.firstCleared ? null : <Tag tone="aether">首通奖励更丰厚</Tag>}

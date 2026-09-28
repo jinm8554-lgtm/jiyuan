@@ -163,9 +163,12 @@ const [scene, setScene] = useState<SceneKey>("council");
   });
 
   const closeConversation = trpc.ai.closeConversation.useMutation({
-    onSuccess: async () => {
+    onSuccess: async (_result, variables) => {
       toast.info("会谈已结束");
-      await utils.ai.cast.invalidate();
+      await Promise.all([
+        utils.ai.cast.invalidate(),
+        utils.ai.conversation.invalidate({ conversationId: variables.conversationId }),
+      ]);
     },
     onError: (error) => toast.error("操作失败", { description: error.message }),
   });
@@ -189,6 +192,7 @@ const [scene, setScene] = useState<SceneKey>("council");
 
   const characters = useMemo(() => cast.data?.characters ?? [], [cast.data]);
   const hasPresence = presentKeys.length > 0;
+  const isConversationOpen = Boolean(conversationId && conversation.data?.status === "open");
   const activeCharacter = useMemo(() => characters.find((item) => item.charKey === activeCharKey) ?? null, [characters, activeCharKey]);
 
   // 打开历史会话时同步在场角色与场景
@@ -393,19 +397,20 @@ const [scene, setScene] = useState<SceneKey>("council");
                     value={input}
                     onChange={(event) => setInput(event.target.value)}
                     placeholder={hasPresence ? "向在场角色提问，例如：南墙的修缮应该先动哪里？" : "请先选择在场角色"}
-                    disabled={!conversationId || !hasPresence || !hasCouncilQuota || talk.isPending}
+                    disabled={!isConversationOpen || !hasPresence || !hasCouncilQuota || talk.isPending}
                     rows={2}
                     maxLength={500}
                     className="min-h-[44px] resize-none border-[color:var(--ink-500)]/70 bg-[color:var(--ink-950)]/85 text-sm text-[color:var(--parchment)]"
                   />
                   <Button
                     className="btn-gold shrink-0 border-transparent text-[color:var(--ink-950)]"
-                    disabled={!conversationId || !hasPresence || !hasCouncilQuota || !input.trim() || talk.isPending}
+                    disabled={!isConversationOpen || !hasPresence || !hasCouncilQuota || !input.trim() || talk.isPending}
                     onClick={() => talk.mutate({ conversationId: conversationId!, message: input.trim(), activeCharKey: activeCharKey === ALL_ACTIVE ? null : activeCharKey, presentKeys })}
                   >
-                    {talk.isPending ? "发言中…" : !hasCouncilQuota ? "今日已用完" : (<><Send size={14} className="mr-1" />发言</>)}
+                    {talk.isPending ? "发言中…" : !isConversationOpen ? "会谈已结束" : !hasCouncilQuota ? "今日已用完" : (<><Send size={14} className="mr-1" />发言</>)}
                   </Button>
                 </div>
+                {conversationId && !isConversationOpen && !conversation.isLoading ? <p className="text-[0.66rem] text-[color:var(--parchment-muted)]">本次会谈已经结束；历史记录仍可查看，开启新会谈后才能继续发言。</p> : null}
                 {!hasCouncilQuota ? <p className="text-[0.66rem] text-[color:var(--danger-400)]">今日议事次数已用完，明日重置。{castData.councilQuota.membershipActive ? "" : "会员可获得更多会谈机会。"}</p> : null}
                 {activeCharacter ? (
                   <p className="text-[0.66rem] text-[color:var(--parchment-muted)]">

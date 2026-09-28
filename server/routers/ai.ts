@@ -370,6 +370,9 @@ export const aiRouter = router({
         .where(and(eq(aiConversations.id, input.conversationId), eq(aiConversations.profileId, profile.id)))
         .limit(1);
       if (!conversation) throw new TRPCError({ code: "NOT_FOUND", message: "会话不存在" });
+      if (conversation.status !== "open") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "会谈已结束，请开启新会谈后再发言" });
+      }
 
       const presentKeys = (input.presentKeys ?? conversation.presentCharKeys ?? []).slice(0, 4);
 

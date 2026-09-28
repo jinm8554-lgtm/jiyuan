@@ -1,16 +1,11 @@
-/**
- * GM 会员与 Token 管理
- * 会员：角色（user/admin）、会员等级、封禁；Token：签发与吊销（明文仅返回一次）
- */
+/** GM 会员管理：角色（user/admin）、会员等级与封禁。 */
 import { useState } from "react";
 import { toast } from "sonner";
-import { Ban, Copy, KeyRound, PackageOpen, Search, ShieldCheck, UserCog } from "lucide-react";
+import { Ban, PackageOpen, Search, ShieldCheck, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import { GMShell } from "@/components/game/GMShell";
@@ -26,7 +21,6 @@ type Member = {
   banned: boolean;
   createdAt: Date | string;
   lastSignedIn: Date | string;
-  tokenCount: number;
   profile: { id: number; lordName: string; keepName: string; chapter: number; keepLevel: number; renown: number; createdAt: Date | string } | null;
 };
 
@@ -54,36 +48,16 @@ export default function GMMembers() {
   const [page, setPage] = useState(1);
   const members = trpc.admin.listMembers.useQuery({ search: search || undefined, page, pageSize: 20 });
   const profiles = trpc.admin.listPlayerProfiles.useQuery();
-  const tokens = trpc.admin.listTokens.useQuery();
-  const [tokenDialog, setTokenDialog] = useState<null | { userId: number; name: string; scopes: string; expiresInDays: number }>(null);
-  const [issued, setIssued] = useState<null | { token: string; id: number; warning: string }>(null);
   const [resourceDialog, setResourceDialog] = useState<null | PlayerProfile>(null);
+  const [deleteTarget, setDeleteTarget] = useState<null | { id: number; name: string }>(null);
   const [resourceForm, setResourceForm] = useState({ gold: 0, food: 0, wood: 0, iron: 0, aether: 0, renown: 0, stamina: 0, reason: "" });
 
   const updateMember = trpc.admin.updateMember.useMutation({
     onSuccess: async () => {
       toast.success("会员信息已更新");
-      await Promise.all([utils.admin.listMembers.invalidate(), utils.admin.listTokens.invalidate()]);
+      await utils.admin.listMembers.invalidate();
     },
     onError: (error) => toast.error("更新失败", { description: error.message }),
-  });
-
-  const createToken = trpc.admin.createToken.useMutation({
-    onSuccess: async (result) => {
-      setIssued({ token: result.token, id: result.id, warning: result.warning });
-      setTokenDialog(null);
-      toast.success("Token 已签发", { description: "明文仅显示一次，请立即转交并安全保存。" });
-      await Promise.all([utils.admin.listTokens.invalidate(), utils.admin.listMembers.invalidate()]);
-    },
-    onError: (error) => toast.error("签发失败", { description: error.message }),
-  });
-
-  const revokeToken = trpc.admin.revokeToken.useMutation({
-    onSuccess: async () => {
-      toast.success("Token 已吊销");
-      await utils.admin.listTokens.invalidate();
-    },
-    onError: (error) => toast.error("吊销失败", { description: error.message }),
   });
 
   const setResources = trpc.admin.setResources.useMutation({
@@ -95,27 +69,23 @@ export default function GMMembers() {
     onError: (error) => toast.error("资源更新失败", { description: error.message }),
   });
 
+  const deleteMember = trpc.admin.deleteMember.useMutation({
+    onSuccess: async (result) => {
+      setDeleteTarget(null);
+      toast.success("账号已永久删除", { description: `${result.deletedName} 的 ${result.deletedProfileCount} 份游戏档案已一并清除。` });
+      await Promise.all([utils.admin.listMembers.invalidate(), utils.admin.listPlayerProfiles.invalidate()]);
+    },
+    onError: (error) => toast.error("删除账号失败", { description: error.message }),
+  });
+
   const openResourceEditor = (profile: PlayerProfile) => {
     setResourceDialog(profile);
     setResourceForm({ gold: profile.gold, food: profile.food, wood: profile.wood, iron: profile.iron, aether: profile.aether, renown: profile.renown, stamina: profile.stamina, reason: "GM 调整" });
   };
 
   return (
-    <GMShell title="会员与 Token" eyebrow="会员等级 / 封禁 / 管理员权限 / API Token 签发与吊销">
-      <Tabs defaultValue="members">
-        <TabsList className="border border-[color:var(--ink-500)]/60 bg-[color:var(--ink-800)]/60">
-          <TabsTrigger value="members" className="text-xs data-[state=active]:bg-[color:var(--ink-700)] data-[state=active]:text-[color:var(--gold-300)]">
-            <UserCog size={12} className="mr-1" />
-            会员管理
-          </TabsTrigger>
-          <TabsTrigger value="tokens" className="text-xs data-[state=active]:bg-[color:var(--ink-700)] data-[state=active]:text-[color:var(--gold-300)]">
-            <KeyRound size={12} className="mr-1" />
-            Token 管理
-          </TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="members">
-          {members.data ? (
+    <GMShell title="会员管理" eyebrow="会员等级 / 封禁 / 管理员权限">
+      {members.data ? (
             <div className="mb-3 grid gap-2 sm:grid-cols-5">
               {[
                 { label: "会员总数", value: members.data.stats.total },
@@ -171,7 +141,7 @@ export default function GMMembers() {
                         {member.banned ? <Tag tone="danger">已封禁</Tag> : null}
                       </div>
                       <div className="mt-0.5 text-[0.64rem] text-[color:var(--parchment-muted)]">
-                        #{member.id} · {member.email ?? "无邮箱"} · Token {member.tokenCount} 个 · 注册 {new Date(member.createdAt).toLocaleDateString("zh-CN")} · 最近登录 {new Date(member.lastSignedIn).toLocaleString("zh-CN")}
+                        #{member.id} · {member.email ?? "无邮箱"} · 注册 {new Date(member.createdAt).toLocaleDateString("zh-CN")} · 最近登录 {new Date(member.lastSignedIn).toLocaleString("zh-CN")}
                       </div>
                       {member.profile ? (
                         <div className="mt-0.5 text-[0.64rem] text-[color:var(--parchment-muted)]">
@@ -213,11 +183,12 @@ export default function GMMembers() {
                       <Button
                         size="sm"
                         variant="outline"
-                        className="h-7 border-[color:var(--gold-600)]/50 text-[0.66rem] text-[color:var(--gold-300)]"
-                        onClick={() => setTokenDialog({ userId: member.id, name: `token-${member.id}`, scopes: "profile:read", expiresInDays: 90 })}
+                        className="h-7 border-[color:var(--blood)]/60 text-[0.66rem] text-[color:var(--blood)] hover:bg-[color:var(--blood)]/10"
+                        onClick={() => setDeleteTarget({ id: member.id, name: member.name ?? `账号 #${member.id}` })}
+                        disabled={deleteMember.isPending}
                       >
-                        <KeyRound size={11} className="mr-1" />
-                        签发 Token
+                        <Trash2 size={11} className="mr-1" />
+                        删除账号
                       </Button>
                     </div>
                   </div>
@@ -245,7 +216,7 @@ export default function GMMembers() {
                       <th className="py-1 pr-2">城堡等级</th>
                       <th className="py-1 pr-2">角色数</th>
                         <th className="py-1 pr-2">金币</th>
-                        <th className="py-1 pr-2">粮/木/铁</th>
+                        <th className="py-1 pr-2">粮食/木材/铁矿</th>
                         <th className="py-1 pr-2">星辉</th>
                         <th className="py-1 pr-2">体力</th>
                         <th className="py-1">操作</th>
@@ -276,126 +247,24 @@ export default function GMMembers() {
               </div>
             )}
           </Panel>
-        </TabsContent>
 
-        <TabsContent value="tokens">
-          {issued ? (
-            <Panel className="mb-3 border-[color:var(--gold-600)]/60 p-3">
-              <div className="text-caption mb-1">新建 Token（明文仅显示一次）</div>
-              <div className="flex items-center gap-2">
-                <code className="min-w-0 flex-1 truncate rounded-sm border border-[color:var(--ink-500)]/60 bg-[color:var(--ink-950)]/70 px-2 py-1.5 text-[0.66rem] text-[color:var(--gold-300)]">{issued.token}</code>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-7 shrink-0 border-[color:var(--ink-500)]/70 text-[0.66rem] text-[color:var(--parchment-dim)]"
-                  onClick={() => {
-                    void navigator.clipboard.writeText(issued.token);
-                    toast.success("已复制到剪贴板");
-                  }}
-                >
-                  <Copy size={11} className="mr-1" />
-                  复制
-                </Button>
-                <Button size="sm" variant="ghost" className="h-7 shrink-0 text-[0.66rem] text-[color:var(--parchment-muted)]" onClick={() => setIssued(null)}>
-                  我已保存
-                </Button>
-              </div>
-              <p className="mt-1 text-[0.64rem] text-[color:var(--parchment-muted)]">
-                Token #{issued.id} · {issued.warning} 离开此页面后无法再次查看明文。
-              </p>
-            </Panel>
-          ) : null}
-
-          <Panel>
-            <SectionTitle eyebrow="API Tokens" title="Token 列表" action={<span className="text-[0.66rem] text-[color:var(--parchment-muted)]">{tokens.data?.length ?? 0} 个</span>} />
-            <GoldRule />
-            {tokens.isLoading ? (
-              <SkeletonState rows={3} />
-            ) : (tokens.data ?? []).length === 0 ? (
-              <EmptyState title="暂无 Token" hint="可在「会员管理」中为指定会员签发 Token；Token 仅存哈希，无法还原明文。" icon={<KeyRound size={20} />} />
-            ) : (
-              <div className="space-y-1.5">
-                {(tokens.data ?? []).map((token) => (
-                  <div key={token.id} className="flex flex-wrap items-center gap-2 rounded-sm border border-[color:var(--ink-500)]/40 bg-[color:var(--ink-800)]/40 p-2 text-[0.66rem]">
-                    <span className="text-[color:var(--parchment)]">{token.name}</span>
-                    <code className="rounded-sm border border-[color:var(--ink-500)]/50 px-1.5 py-0.5 text-[0.62rem] text-[color:var(--parchment-muted)]">{token.tokenPrefix}…</code>
-                    <span className="text-[color:var(--parchment-muted)]">会员 #{token.userId} · 权限 {(token.scopes ?? []).join("、") || "—"}</span>
-                    <span className="text-[color:var(--parchment-muted)]">
-                      到期 {token.expiresAt ? new Date(token.expiresAt).toLocaleDateString("zh-CN") : "长期"}
-                    </span>
-                    {token.revokedAt ? (
-                      <Tag tone="danger">已吊销 {new Date(token.revokedAt).toLocaleDateString("zh-CN")}</Tag>
-                    ) : (
-                      <Tag tone="good">有效</Tag>
-                    )}
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="ml-auto h-7 border-[color:var(--blood)]/50 text-[0.64rem] text-[color:var(--blood)]"
-                      onClick={() => revokeToken.mutate({ id: token.id })}
-                      disabled={revokeToken.isPending || Boolean(token.revokedAt)}
-                    >
-                      吊销
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </Panel>
-        </TabsContent>
-      </Tabs>
-
-      {/* 签发 Token */}
-      <Dialog open={Boolean(tokenDialog)} onOpenChange={(open) => { if (!open) setTokenDialog(null); }}>
-        <DialogContent className="border-[color:var(--gold-600)]/50 bg-[color:var(--ink-900)] text-[color:var(--parchment)] sm:max-w-md">
+      <Dialog open={Boolean(deleteTarget)} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
+        <DialogContent className="border-[color:var(--blood)]/60 bg-[color:var(--ink-900)] text-[color:var(--parchment)] sm:max-w-md">
           <DialogHeader>
-            <DialogTitle className="text-display text-[color:var(--parchment)]">签发 API Token</DialogTitle>
+            <DialogTitle className="text-display text-[color:var(--parchment)]">永久删除账号</DialogTitle>
             <DialogDescription className="text-[color:var(--parchment-muted)]">
-              Token 仅用于服务端集成，不在游戏客户端使用。明文只返回一次，数据库仅保存哈希与前缀。
+              将永久删除「{deleteTarget?.name ?? "该账号"}」及其角色、资源、战斗、招募与议事记录。此操作不可撤销。
             </DialogDescription>
           </DialogHeader>
-          {tokenDialog ? (
-            <div className="space-y-3">
-              <div>
-                <Label className="text-[0.68rem] text-[color:var(--parchment-muted)]">名称</Label>
-                <Input value={tokenDialog.name} onChange={(event) => setTokenDialog({ ...tokenDialog, name: event.target.value })} className="mt-1 h-8 border-[color:var(--ink-500)]/70 bg-[color:var(--ink-800)]/70 text-xs text-[color:var(--parchment)]" />
-              </div>
-              <div>
-                <Label className="text-[0.68rem] text-[color:var(--parchment-muted)]">权限范围（逗号分隔）</Label>
-                <Input value={tokenDialog.scopes} onChange={(event) => setTokenDialog({ ...tokenDialog, scopes: event.target.value })} className="mt-1 h-8 border-[color:var(--ink-500)]/70 bg-[color:var(--ink-800)]/70 text-xs text-[color:var(--parchment)]" />
-              </div>
-              <div>
-                <Label className="text-[0.68rem] text-[color:var(--parchment-muted)]">有效期（天）</Label>
-                <Select value={String(tokenDialog.expiresInDays)} onValueChange={(value) => setTokenDialog({ ...tokenDialog, expiresInDays: Number(value) })}>
-                  <SelectTrigger className="mt-1 h-8 border-[color:var(--ink-500)]/70 bg-[color:var(--ink-800)]/70 text-xs text-[color:var(--parchment)]">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="border-[color:var(--ink-500)]/70 bg-[color:var(--ink-800)]">
-                    <SelectItem value="30">30 天</SelectItem>
-                    <SelectItem value="90">90 天</SelectItem>
-                    <SelectItem value="180">180 天</SelectItem>
-                    <SelectItem value="365">365 天</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-          ) : null}
           <div className="flex justify-end gap-2">
-            <Button variant="ghost" className="text-[color:var(--parchment-muted)]" onClick={() => setTokenDialog(null)}>取消</Button>
+            <Button variant="ghost" className="text-[color:var(--parchment-muted)]" onClick={() => setDeleteTarget(null)}>取消</Button>
             <Button
-              className="btn-gold border-transparent text-[color:var(--ink-950)]"
-              disabled={createToken.isPending || !tokenDialog}
-              onClick={() => {
-                if (!tokenDialog) return;
-                createToken.mutate({
-                  userId: tokenDialog.userId,
-                  name: tokenDialog.name,
-                  scopes: tokenDialog.scopes.split(",").map((item) => item.trim()).filter(Boolean),
-                  expiresInDays: tokenDialog.expiresInDays,
-                });
-              }}
+              variant="destructive"
+              disabled={!deleteTarget || deleteMember.isPending}
+              onClick={() => deleteTarget && deleteMember.mutate({ userId: deleteTarget.id })}
             >
-              签发
+              <Trash2 size={13} className="mr-1" />
+              {deleteMember.isPending ? "删除中…" : "永久删除"}
             </Button>
           </div>
         </DialogContent>
@@ -412,7 +281,7 @@ export default function GMMembers() {
           </DialogHeader>
           <div className="grid grid-cols-2 gap-3">
             {([
-              ["gold", "金币"], ["food", "粮食"], ["wood", "木料"], ["iron", "铁矿"],
+              ["gold", "金币"], ["food", "粮食"], ["wood", "木材"], ["iron", "铁矿"],
               ["aether", "星辉"], ["renown", "声望"], ["stamina", "体力"],
             ] as const).map(([key, label]) => (
               <div key={key}>
