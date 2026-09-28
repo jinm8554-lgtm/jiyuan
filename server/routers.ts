@@ -16,6 +16,7 @@ import { adminRouter } from "./routers/admin";
 import { battleRouter } from "./routers/battle";
 import { characterRouter } from "./routers/character";
 import { keepRouter } from "./routers/keep";
+import { leadershipRouter } from "./routers/leadership";
 import { metaRouter } from "./routers/meta";
 import { recruitRouter } from "./routers/recruit";
 import { worldRouter } from "./routers/world";
@@ -83,6 +84,7 @@ export const appRouter = router({
   recruit: recruitRouter,
   world: worldRouter,
   battle: battleRouter,
+  leadership: leadershipRouter,
   ai: aiRouter,
   admin: adminRouter,
 });

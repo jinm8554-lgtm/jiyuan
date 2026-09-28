@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { CHARACTER_SEEDS, STARTER_CHAR_KEYS } from "./data/characters";
 import { EQUIPMENT_SEEDS, SET_BONUSES } from "./data/equipments";
 import { NODE_SEEDS, REGION_SEEDS } from "./data/world";
-import { SKILL_BY_KEY, SKILL_SEEDS, skillPowerAtLevel } from "./data/skills";
+import { SKILL_BY_KEY, SKILL_SEEDS, skillEffectValueAtLevel, skillPowerAtLevel } from "./data/skills";
 import {
   applyBondExp,
   applyExp,
@@ -21,7 +21,8 @@ import {
   MAX_LEVEL_BY_ASCENSION,
 } from "./formulas";
 import { drawMany, effectiveRates, isPoolOpen, mulberry32, normalizeRates, pityProgress, rollRarity, totalCost, type PoolConfig, type PityState } from "./recruit";
-import { autoResolve, checkBattleEnd, computeRewards, createRng, executeAction, startBattle, type BattleUnitInput } from "./battle";
+import { autoResolve, checkBattleEnd, computeRewards, createRng, executeAction, executeLeaderCommand, startBattle, type BattleUnitInput } from "./battle";
+import { createLeaderCommandState, normalizeLeaderLoadout, normalizeLeaderSkillLevels } from "./leadership";
 import { AI_OUTPUT_SCHEMA, buildSystemPrompt, buildUserPrompt, extractJson, fallbackTurns, validateAiOutput } from "./ai";
 import { encryptSecret, decryptSecret, maskApiKey } from "./aiClient";
 import { verifySnapshot } from "./backup";
@@ -392,6 +393,25 @@ describe("战斗引擎", () => {
     expect(ally.hp).toBeGreaterThan(100);
   });
 
+  it("领主指令独立于伙伴能量，并正确消耗指挥点和记录本场使用", () => {
+    const state = startBattle([makeAlly(), makeAlly({ id: "ally_2", charKey: "greta", job: "warrior" }), makeEnemy()], {
+      nodeKey: "t",
+      regionKey: "r",
+      seed: 18,
+    });
+    const levels = normalizeLeaderSkillLevels({ field_medicine: 1, fortify_order: 1 });
+    state.leaderCommands = createLeaderCommandState(levels, normalizeLeaderLoadout(["field_medicine", "fortify_order"], levels));
+    const ally = state.units.find((unit) => unit.id === "ally_1")!;
+    ally.hp = 100;
+    ally.energy = 0;
+    const events = executeLeaderCommand(state, "field_medicine", undefined, createRng(3));
+    expect(events.some((event) => event.type === "heal")).toBe(true);
+    expect(ally.hp).toBeGreaterThan(100);
+    expect(ally.energy).toBe(0);
+    expect(state.leaderCommands.points).toBe(0);
+    expect(state.leaderCommands.usedKeys).toContain("field_medicine");
+  });
+
   it("护盾先于生命被消耗，生命归零则退出战斗", () => {
     const state = startBattle([makeAlly(), makeEnemy({ stats: { hp: 200, atk: 5000, mag: 5000, def: 0, res: 0, spd: 200, hit: 200, crit: 0, critDmg: 0, dodge: 0 } })], {
       nodeKey: "t",
@@ -424,9 +444,12 @@ describe("战斗引擎", () => {
     expect(fortified).toBeLessThan(plain);
   });
 
-  it("技能等级提升倍率，效果真实影响伤害", () => {
-    const skill = SKILL_BY_KEY.get("sk_raise_banner")!;
-    expect(skillPowerAtLevel(skill, 5)).toBeGreaterThan(skillPowerAtLevel(skill, 1));
+  it("技能等级提升倍率与纯效果技能的数值", () => {
+    const damagingSkill = SKILL_BY_KEY.get("sk_cleave_strike")!;
+    const buffSkill = SKILL_BY_KEY.get("sk_oath_roar")!;
+    expect(skillPowerAtLevel(damagingSkill, 5)).toBeGreaterThan(skillPowerAtLevel(damagingSkill, 1));
+    expect(skillEffectValueAtLevel(damagingSkill, 78, 5)).toBeGreaterThan(skillEffectValueAtLevel(damagingSkill, 78, 1));
+    expect(skillEffectValueAtLevel(buffSkill, 18, 5)).toBeGreaterThan(skillEffectValueAtLevel(buffSkill, 18, 1));
   });
 
   it("星级评价与奖励倍率联动", () => {
@@ -619,6 +642,18 @@ describe("AI 角色互动：Schema 校验与在场角色约束", () => {
     });
     expect(userPrompt).toContain("艾德里安");
     expect(userPrompt).toContain("先修城墙还是先开矿");
+
+    const unassignedPrompt = buildUserPrompt({
+      playerMessage: "你们怎么看？",
+      scene: "council",
+      activeCharKey: null,
+      present: presentChars,
+      history: [],
+      turnCount: 0,
+    });
+    expect(unassignedPrompt).toContain("本轮只输出 1 条 turns");
+    expect(unassignedPrompt).toContain("adrian");
+    expect(unassignedPrompt).toContain("viola");
   });
 
   it("没有在场角色时不调用模型，直接给出提示", () => {

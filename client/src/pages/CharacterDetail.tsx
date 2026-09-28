@@ -320,7 +320,12 @@ export default function CharacterDetail() {
                           </div>
                           <div className="mt-0.5 flex flex-wrap gap-2 text-[0.62rem] text-[color:var(--parchment-muted)]">
                             <span>{skill.kind === "passive" ? "被动" : "主动"}</span>
-                            <span>倍率 {skill.power}%</span>
+                            {skill.power > 0 ? (
+                              <span className="text-[color:var(--gold-300)]">当前倍率 {skill.currentPower}%</span>
+                            ) : (
+                              <span className="text-[color:var(--gold-300)]">当前效果强度 LV.{skill.level}</span>
+                            )}
+                            {skill.maxLevel > 1 ? <span>{skill.power > 0 ? `每级 +${skill.powerPerLevel} 倍率` : `每级提升效果 ${skill.powerPerLevel}%`}</span> : null}
                             <span>冷却 {skill.cooldown} 回合</span>
                             {skill.energyCost > 0 ? <span>能量 {skill.energyCost}</span> : null}
                             <span>
@@ -332,7 +337,7 @@ export default function CharacterDetail() {
                             <div className="mt-1 flex flex-wrap gap-1">
                               {(skill.effects as Array<Record<string, unknown>>).map((effect, index) => (
                                 <Tag key={index} tone="aether">
-                                  {String(effect.type)}{effect.value !== undefined ? ` ${effect.value}` : ""}{effect.duration ? ` · ${effect.duration} 回合` : ""}
+                                  {String(effect.type)}{effect.currentValue !== undefined ? ` ${effect.currentValue}` : effect.value !== undefined ? ` ${effect.value}` : ""}{effect.duration ? ` · ${effect.duration} 回合` : ""}
                                 </Tag>
                               ))}
                             </div>

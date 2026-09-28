@@ -155,6 +155,7 @@ export function buildSystemPrompt(params: {
     "",
     "【严格规则】",
     "1. 只能让下列在场角色发言或行动。任何不在列表中的角色一律不得出现（不得创建新角色、不得引入未出场者）。",
+    "1a. 每一条 turns 条目的 charKey 都必须逐字复制上方的「角色ID」，且必须非空；不得填写角色姓名、称号、中文名或自行编造的 ID。",
     "2. 不得改动任何角色的身份、姓名、称号、阵营、种族、性格、目标或背景事实；不得替角色做违背其设定的事。",
     "3. 角色可以选择发言(speak)、回应他人(respond)、采取行动(act)或保持沉默(silent)。沉默的条目 content 写简短的动作/神态描述。",
     "4. 每名角色一次只输出一条 turns 条目（可由多名在场角色各输出一条，也可以只有一名角色开口）。",
@@ -185,12 +186,13 @@ export function buildUserPrompt(params: {
     .join("\n");
 
   const active = params.activeCharKey ? params.present.find((p) => p.charKey === params.activeCharKey) : null;
+  const allowedIds = params.present.map((p) => p.charKey).join("、");
 
   return [
     historyText ? `【最近的对话】\n${historyText}\n` : "",
     active
       ? `【玩家当前选中的在场角色】${active.name}（${active.charKey}）—— 优先让 ${active.name} 回应；其他在场角色可以简短回应或保持沉默。`
-      : "【玩家当前未指定发言者】请让最符合场景与性格的在场角色自然回应。",
+      : `【玩家当前未指定发言者】请从在场角色中自然选择一名回应。为保证格式稳定，本轮只输出 1 条 turns；charKey 必须填写且只能是下列 ID 之一：${allowedIds}。`,
     `【本轮玩家发言】${params.playerMessage}`,
     `【已进行回合】${params.turnCount}`,
     "请输出 JSON。",

@@ -46,14 +46,18 @@ type UnitView = {
     kind: string;
     targetType: string;
     power: number;
+    currentPower: number;
     cooldown: number;
     energyCost: number;
     iconKey: string;
     description: string;
+    effects: Array<{ type?: string; value?: number; scope?: string }>;
     ready: boolean;
     cooldownLeft: number;
   }>;
 };
+
+type SkillView = UnitView["skills"][number];
 
 type StateView = {
   turn: number;
@@ -62,6 +66,20 @@ type StateView = {
   awaitingUnitId: string | null;
   rating: number;
   units: UnitView[];
+  leaderCommands: null | {
+    points: number;
+    maxPoints: number;
+    lastCommandTurn: number | null;
+    tactics: Array<{
+      key: string;
+      name: string;
+      description: string;
+      level: number;
+      pointsCost: number;
+      targetType: "none" | "enemy" | "ally_down";
+      used: boolean;
+    }>;
+  };
 };
 
 type EventView = {
@@ -121,6 +139,38 @@ function floatingTextFor(event: EventView) {
   return null;
 }
 
+function scaledEffectPower(skill: SkillView, effectValue: number) {
+  const basePower = Math.max(1, skill.power || 0);
+  return effectValue * ((skill.currentPower || skill.power || 0) / basePower);
+}
+
+function skillPreview(unit: UnitView, skill: SkillView) {
+  const damage = skill.effects.find((effect) => effect.type === "damage");
+  if (damage) {
+    const attackValue = skill.element === "physical" ? Number(unit.stats.atk ?? 0) : Number(unit.stats.mag ?? 0);
+    const power = scaledEffectPower(skill, Number(damage.value ?? skill.power));
+    const baseDamage = Math.round(attackValue * (power / 100));
+    return {
+      label: "当前基础伤害",
+      value: `约 ${baseDamage.toLocaleString("zh-CN")}`,
+      note: "实际伤害还会受目标防御、元素克制、命中与暴击影响。",
+    };
+  }
+
+  const heal = skill.effects.find((effect) => effect.type === "heal");
+  if (heal) {
+    const power = scaledEffectPower(skill, Number(heal.value ?? skill.power));
+    const baseHeal = Math.round(Number(unit.stats.mag ?? 0) * (power / 100));
+    return {
+      label: "当前基础治疗",
+      value: `约 ${baseHeal.toLocaleString("zh-CN")}`,
+      note: "实际治疗还会受技能等级、暴击与随机波动影响。",
+    };
+  }
+
+  return null;
+}
+
 export default function Battle() {
   const params = useParams<{ nodeKey: string }>();
   const nodeKey = params.nodeKey ?? "";
@@ -135,6 +185,7 @@ export default function Battle() {
   const [nextNode, setNextNode] = useState<{ nodeKey: string; name: string } | null>(null);
   const [floating, setFloating] = useState<Record<string, { text: string; tone: string; key: number }>>({});
   const [selectedSkill, setSelectedSkill] = useState<string | null>(null);
+  const [selectedLeaderCommand, setSelectedLeaderCommand] = useState<string | null>(null);
   const [pendingTarget, setPendingTarget] = useState<string | null>(null);
   const [reserveOffer, setReserveOffer] = useState<{ name: string; memberCount: number } | null>(null);
   const logRef = useRef<HTMLDivElement | null>(null);
@@ -167,6 +218,7 @@ export default function Battle() {
       setState(result.state as StateView);
       setEvents((current) => [...current, ...((result.events ?? []) as EventView[])].slice(-80));
       setSelectedSkill(null);
+      setSelectedLeaderCommand(null);
       setPendingTarget(null);
       const newEvents = (result.events ?? []) as EventView[];
       const next: Record<string, { text: string; tone: string; key: number }> = {};
@@ -192,6 +244,23 @@ export default function Battle() {
       }
     },
     onError: (error) => toast.error("指令执行失败", { description: error.message }),
+  });
+
+  const command = trpc.battle.command.useMutation({
+    onSuccess: (result) => {
+      setState(result.state as StateView);
+      setEvents((current) => [...current, ...((result.events ?? []) as EventView[])].slice(-80));
+      setSelectedLeaderCommand(null);
+      setPendingTarget(null);
+      const next: Record<string, { text: string; tone: string; key: number }> = {};
+      for (const event of (result.events ?? []) as EventView[]) {
+        const floatingText = floatingTextFor(event);
+        if (floatingText && event.targetId) next[event.targetId] = { ...floatingText, key: Date.now() + Math.random() };
+      }
+      if (Object.keys(next).length > 0) setFloating(next);
+      toast.success("领主指令已下达");
+    },
+    onError: (error) => toast.error("领主指令无法执行", { description: error.message }),
   });
 
   const auto = trpc.battle.auto.useMutation({
@@ -234,6 +303,7 @@ export default function Battle() {
       setNextNode(null);
       setEvents((current) => [...current, ...((result.events ?? []) as EventView[])].slice(-80));
       setSelectedSkill(null);
+      setSelectedLeaderCommand(null);
       setPendingTarget(null);
       toast.success(`${result.reserveTeam.name} 已接战`, { description: "敌方保留上一场战斗后的剩余生命。" });
       void utils.battle.recent.invalidate();
@@ -254,6 +324,7 @@ export default function Battle() {
     setDroppedItems([]);
     setNextNode(null);
     setSelectedSkill(null);
+    setSelectedLeaderCommand(null);
     setPendingTarget(null);
     setReserveOffer(null);
     startedRef.current = false;
@@ -314,6 +385,19 @@ export default function Battle() {
   const allies = useMemo(() => state?.units.filter((unit) => unit.side === "ally") ?? [], [state]);
   const enemies = useMemo(() => state?.units.filter((unit) => unit.side === "enemy") ?? [], [state]);
   const awaiting = useMemo(() => state?.units.find((unit) => unit.id === state.awaitingUnitId) ?? null, [state]);
+  const selectedActiveSkill = useMemo(() => {
+    if (!awaiting || !selectedSkill) return null;
+    const skill = awaiting.skills.find((entry) => entry.skillKey === selectedSkill) ?? null;
+    return skill?.kind === "active" ? skill : null;
+  }, [awaiting, selectedSkill]);
+  const selectedSkillPreview = useMemo(
+    () => (awaiting && selectedActiveSkill ? skillPreview(awaiting, selectedActiveSkill) : null),
+    [awaiting, selectedActiveSkill],
+  );
+  const selectedLeaderTactic = useMemo(
+    () => state?.leaderCommands?.tactics.find((tactic) => tactic.key === selectedLeaderCommand) ?? null,
+    [selectedLeaderCommand, state?.leaderCommands?.tactics],
+  );
 
   if (!nodeKey) {
     return (
@@ -403,14 +487,19 @@ export default function Battle() {
                     {enemies.map((unit) => {
                       const ElementIcon = ELEMENT_ICON[unit.element as keyof typeof ELEMENT_ICON];
                       const JobIcon = JOB_ICON[unit.job as keyof typeof JOB_ICON];
-                      const targetable = Boolean(selectedSkill) && unit.alive;
+                      const skillTargetable = Boolean(selectedSkill) && unit.alive;
+                      const leaderTargetable = selectedLeaderTactic?.targetType === "enemy" && unit.alive;
+                      const targetable = skillTargetable || leaderTargetable;
                       return (
                         <button
                           key={unit.id}
                           disabled={!targetable}
                           onClick={() => {
-                            if (!selectedSkill || !awaiting) return;
-                            act.mutate({ battleId: battleId!, unitId: awaiting.id, actionKey: selectedSkill, targetId: unit.id });
+                            if (selectedLeaderTactic) {
+                              command.mutate({ battleId: battleId!, commandKey: selectedLeaderTactic.key, targetId: unit.id });
+                              return;
+                            }
+                            if (selectedSkill && awaiting) act.mutate({ battleId: battleId!, unitId: awaiting.id, actionKey: selectedSkill, targetId: unit.id });
                           }}
                           className={cn(
                             "relative rounded-sm border p-2 text-left transition-colors",
@@ -464,18 +553,23 @@ export default function Battle() {
                     {allies.map((unit) => {
                       const isAwaiting = state.awaitingUnitId === unit.id;
                       const JobIcon = JOB_ICON[unit.job as keyof typeof JOB_ICON];
-                      const targetable = Boolean(selectedSkill) && unit.alive && ["self", "ally", "all_allies"].includes(awaiting?.skills.find((skill) => skill.skillKey === selectedSkill)?.targetType ?? "self");
+                      const skillTargetable = Boolean(selectedSkill) && unit.alive && ["self", "ally", "all_allies"].includes(awaiting?.skills.find((skill) => skill.skillKey === selectedSkill)?.targetType ?? "self");
+                      const leaderTargetable = selectedLeaderTactic?.targetType === "ally_down" && !unit.alive;
+                      const targetable = skillTargetable || leaderTargetable;
                       return (
                         <button
                           key={unit.id}
                           disabled={!targetable}
                           onClick={() => {
-                            if (!selectedSkill || !awaiting) return;
-                            act.mutate({ battleId: battleId!, unitId: awaiting.id, actionKey: selectedSkill, targetId: unit.id });
+                            if (selectedLeaderTactic) {
+                              command.mutate({ battleId: battleId!, commandKey: selectedLeaderTactic.key, targetId: unit.id });
+                              return;
+                            }
+                            if (selectedSkill && awaiting) act.mutate({ battleId: battleId!, unitId: awaiting.id, actionKey: selectedSkill, targetId: unit.id });
                           }}
                           className={cn(
                             "relative rounded-sm border p-2 text-left transition-colors",
-                            !unit.alive ? "border-[color:var(--ink-500)]/40 bg-[color:var(--ink-950)]/40 opacity-45" : "border-[color:var(--gold-600)]/60 bg-[color:var(--ink-950)]/70",
+                            !unit.alive && !targetable ? "border-[color:var(--ink-500)]/40 bg-[color:var(--ink-950)]/40 opacity-45" : "border-[color:var(--gold-600)]/60 bg-[color:var(--ink-950)]/70",
                             isAwaiting && "ring-2 ring-[color:var(--gold-300)]/70",
                             targetable && "cursor-crosshair border-[color:var(--gold-300)] ring-2 ring-[color:var(--gold-300)]/60 shadow-[0_0_18px_color-mix(in_srgb,var(--gold-400)_28%,transparent)] hover:bg-[color:var(--ink-800)]/90",
                           )}
@@ -501,11 +595,15 @@ export default function Battle() {
                             {JOB_NAME[unit.job]} · LV.{unit.level} · {unit.row === "front" ? "前排" : "后排"}
                           </div>
                           <ProgressBar className="mt-1" value={unit.hp} max={unit.maxHp} height={5} tone="verdant" />
-                          <ProgressBar className="mt-1" value={unit.energy} max={unit.energyMax} height={3} tone="aether" />
                           <div className="mt-0.5 flex items-center justify-between text-[0.58rem] text-[color:var(--parchment-muted)]">
                             <span className="text-numeric">{Math.max(0, Math.round(unit.hp))}/{unit.maxHp}</span>
                             {unit.shield > 0 ? <span className="text-[color:var(--frost)]">盾 {unit.shield}</span> : null}
                           </div>
+                          <div className="mt-1 flex items-center justify-between text-[0.58rem] text-[color:var(--aether-300)]">
+                            <span>星辉能量</span>
+                            <span className="text-numeric">{Math.max(0, Math.round(unit.energy))}/{unit.energyMax}</span>
+                          </div>
+                          <ProgressBar className="mt-0.5" value={unit.energy} max={unit.energyMax} height={3} tone="aether" />
                           {isAwaiting ? <div className="mt-1 text-[0.58rem] text-[color:var(--gold-300)]">等待你的指令</div> : null}
                         </button>
                       );
@@ -582,6 +680,55 @@ export default function Battle() {
                 </div>
               ) : awaiting ? (
                 <>
+                  {state.leaderCommands && state.leaderCommands.tactics.length > 0 ? (
+                    <div className="mb-3 rounded-sm border border-[color:var(--aether-500)]/55 bg-[color:var(--ink-950)]/45 p-2.5">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="flex items-center gap-1.5 text-xs font-semibold text-[color:var(--aether-300)]"><Sparkles size={13} /> 领主指令</span>
+                        <span className="text-numeric text-xs text-[color:var(--parchment-dim)]">指挥点 {state.leaderCommands.points}/{state.leaderCommands.maxPoints}</span>
+                      </div>
+                      <div className="mt-2 grid gap-1.5 sm:grid-cols-2">
+                        {state.leaderCommands.tactics.map((tactic) => {
+                          const usedThisTurn = state.leaderCommands?.lastCommandTurn === state.turn;
+                          const unavailable = tactic.used || usedThisTurn || state.leaderCommands!.points < tactic.pointsCost || command.isPending;
+                          const selected = selectedLeaderCommand === tactic.key;
+                          return (
+                            <button
+                              key={tactic.key}
+                              disabled={unavailable}
+                              onClick={() => {
+                                setSelectedSkill(null);
+                                setPendingTarget(null);
+                                if (tactic.targetType === "none") {
+                                  setSelectedLeaderCommand(null);
+                                  command.mutate({ battleId: battleId!, commandKey: tactic.key });
+                                } else {
+                                  setSelectedLeaderCommand(tactic.key);
+                                }
+                              }}
+                              className={cn(
+                                "rounded-sm border px-2.5 py-2 text-left transition-colors",
+                                selected ? "border-[color:var(--gold-300)] bg-[color:var(--gold-600)]/15 ring-1 ring-[color:var(--gold-300)]/60" : "border-[color:var(--aether-500)]/45 bg-[color:var(--ink-800)]/55 hover:border-[color:var(--aether-300)]",
+                                unavailable && "cursor-not-allowed opacity-45",
+                              )}
+                            >
+                              <span className="flex items-center justify-between gap-2 text-xs font-semibold text-[color:var(--parchment)]">
+                                {tactic.name}
+                                <span className="text-numeric text-[color:var(--aether-300)]">{tactic.pointsCost} 点</span>
+                              </span>
+                              <span className="mt-0.5 block text-[0.6rem] text-[color:var(--parchment-muted)]">
+                                {tactic.used ? "本场已使用" : usedThisTurn ? "本回合已下令" : tactic.targetType === "enemy" ? "选择一名敌人" : tactic.targetType === "ally_down" ? "选择一名倒下友军" : tactic.description}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                      {selectedLeaderTactic ? (
+                        <p className="mt-2 text-xs font-semibold text-[color:var(--gold-300)]">
+                          已选择「{selectedLeaderTactic.name}」——请点击{selectedLeaderTactic.targetType === "enemy" ? "上方高亮敌人" : "上方倒下的友军"}下达指令。
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : null}
                   <div className="mb-3 flex flex-wrap gap-2">
                     <span className="text-caption">元素</span>
                     {(() => {
@@ -597,17 +744,33 @@ export default function Battle() {
                     <span className="text-numeric text-xs text-[color:var(--parchment-dim)]">
                       攻 {awaiting.stats.atk} · 魔 {awaiting.stats.mag} · 防 {awaiting.stats.def} · 速 {awaiting.stats.spd}
                     </span>
+                    <span className="text-caption ml-3">能量</span>
+                    <span className="inline-flex items-center gap-1.5 text-xs text-[color:var(--aether-300)]">
+                      <span className="h-1.5 w-14 overflow-hidden rounded-full bg-[color:var(--ink-500)]/60">
+                        <span
+                          className="block h-full rounded-full bg-[color:var(--aether-400)]"
+                          style={{ width: `${Math.min(100, Math.max(0, (awaiting.energy / Math.max(1, awaiting.energyMax)) * 100))}%` }}
+                        />
+                      </span>
+                      <span className="text-numeric">{Math.max(0, Math.round(awaiting.energy))}/{awaiting.energyMax}</span>
+                    </span>
                   </div>
                   <div className="grid gap-2 sm:grid-cols-2">
-                    {awaiting.skills.map((skill) => {
+                    {awaiting.skills.filter((skill) => skill.kind === "active").map((skill) => {
                       const onCooldown = skill.cooldownLeft > 0;
                       const notEnoughEnergy = skill.energyCost ? awaiting.energy < skill.energyCost : false;
+                      const unavailableReason = onCooldown
+                        ? `冷却中，还需 ${skill.cooldownLeft} 回合`
+                        : notEnoughEnergy
+                          ? `能量不足：${Math.max(0, Math.round(awaiting.energy))}/${skill.energyCost}`
+                          : null;
                       const ElementIcon = ELEMENT_ICON[skill.element as keyof typeof ELEMENT_ICON];
                       return (
                         <button
                           key={skill.skillKey}
                           disabled={onCooldown || notEnoughEnergy || act.isPending}
                           onClick={() => {
+                            setSelectedLeaderCommand(null);
                             setSelectedSkill(skill.skillKey);
                             if (skill.targetType === "enemy" || skill.targetType === "ally" || skill.targetType === "self") {
                               setPendingTarget(null);
@@ -620,7 +783,7 @@ export default function Battle() {
                             selectedSkill === skill.skillKey
                               ? "border-[color:var(--gold-300)] bg-[color:var(--ink-700)]/90 ring-2 ring-[color:var(--gold-300)]/55 shadow-[0_0_22px_color-mix(in_srgb,var(--gold-400)_30%,transparent)]"
                               : "border-[color:var(--gold-600)]/55 bg-gradient-to-br from-[color:var(--ink-800)]/85 to-[color:var(--ink-900)]/70 hover:-translate-y-0.5 hover:border-[color:var(--gold-300)] hover:shadow-[0_0_18px_color-mix(in_srgb,var(--gold-400)_22%,transparent)]",
-                            (onCooldown || notEnoughEnergy) && "cursor-not-allowed opacity-40 grayscale",
+                            (onCooldown || notEnoughEnergy) && "cursor-not-allowed opacity-70",
                           )}
                         >
                           <div className="flex items-center justify-between gap-2">
@@ -630,21 +793,38 @@ export default function Battle() {
                               </span>
                               {skill.name}
                             </span>
-                            <span className={cn("rounded-sm px-1.5 py-0.5 text-[0.62rem]", selectedSkill === skill.skillKey ? "bg-[color:var(--gold-400)] text-[color:var(--ink-950)]" : "text-[color:var(--parchment-muted)]")}>{selectedSkill === skill.skillKey ? "已选择" : `LV.${skill.level}`}</span>
+                            <span className={cn(
+                              "rounded-sm px-1.5 py-0.5 text-[0.62rem]",
+                              selectedSkill === skill.skillKey
+                                ? "bg-[color:var(--gold-400)] text-[color:var(--ink-950)]"
+                                : onCooldown
+                                  ? "border border-[color:var(--blood)]/55 bg-[color:var(--blood)]/15 text-[color:var(--blood)]"
+                                  : notEnoughEnergy
+                                    ? "border border-[color:var(--aether-500)]/55 bg-[color:var(--aether-500)]/15 text-[color:var(--aether-300)]"
+                                    : "text-[color:var(--parchment-muted)]",
+                            )}>{selectedSkill === skill.skillKey ? "已选择" : onCooldown ? `冷却 ${skill.cooldownLeft}` : notEnoughEnergy ? "能量不足" : `LV.${skill.level}`}</span>
                           </div>
                           <div className="mt-0.5 text-[0.62rem] text-[color:var(--parchment-muted)]">
-                            {skill.kind === "passive" ? "被动" : "主动"} · {
+                            主动 · {
                               skill.targetType === "all_enemies" ? "全体敌人" : skill.targetType === "all_allies" ? "全体友方" : skill.targetType === "enemy" ? "单体敌人" : skill.targetType === "ally" ? "单体友方" : "自身"
                             }
-                            {skill.cooldownLeft > 0 ? ` · 冷却 ${skill.cooldownLeft}` : skill.cooldownLeft === 0 && onCooldown ? " · 就绪" : ""}
-                            {skill.energyCost ? ` · 消耗能量 ${skill.energyCost}` : ""}
+                            {skill.energyCost ? ` · 消耗能量 ${skill.energyCost}（当前 ${Math.max(0, Math.round(awaiting.energy))}）` : ""}
                           </div>
+                          {unavailableReason ? (
+                            <div className={cn(
+                              "mt-1 text-xs font-semibold",
+                              onCooldown ? "text-[color:var(--blood)]" : "text-[color:var(--aether-300)]",
+                            )}>
+                              {unavailableReason}
+                            </div>
+                          ) : null}
                         </button>
                       );
                     })}
                     <button
                       disabled={act.isPending}
                       onClick={() => {
+                        setSelectedLeaderCommand(null);
                         setSelectedSkill(null);
                         act.mutate({ battleId: battleId!, unitId: awaiting.id, actionKey: "sk_defend" });
                       }}
@@ -657,8 +837,21 @@ export default function Battle() {
                       <div className="mt-0.5 text-[0.62rem] text-[color:var(--parchment-muted)]">后手减伤并获得护盾，可等待技能冷却</div>
                     </button>
                   </div>
-                  {selectedSkill ? (
-                    <p className="mt-3 rounded-sm border border-[color:var(--gold-300)]/70 bg-[color:var(--gold-600)]/15 px-3 py-2 text-sm font-semibold text-[color:var(--gold-300)] shadow-[0_0_18px_color-mix(in_srgb,var(--gold-400)_18%,transparent)]">技能已选择——请点击上方高亮目标释放。</p>
+                  {selectedActiveSkill ? (
+                    <div className="mt-3 rounded-sm border border-[color:var(--gold-300)]/70 bg-[color:var(--gold-600)]/15 px-3 py-2.5 shadow-[0_0_18px_color-mix(in_srgb,var(--gold-400)_18%,transparent)]">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="text-sm font-semibold text-[color:var(--gold-200)]">{selectedActiveSkill.name} · LV.{selectedActiveSkill.level}</span>
+                        {selectedActiveSkill.power > 0 ? <span className="text-numeric text-xs text-[color:var(--gold-300)]">当前倍率 {selectedActiveSkill.currentPower}%</span> : null}
+                      </div>
+                      <p className="mt-1 text-xs leading-relaxed text-[color:var(--parchment-dim)]">{selectedActiveSkill.description}</p>
+                      {selectedSkillPreview ? (
+                        <div className="mt-2 rounded-sm border border-[color:var(--gold-600)]/45 bg-[color:var(--ink-950)]/45 px-2.5 py-2 text-xs">
+                          <span className="font-semibold text-[color:var(--gold-300)]">{selectedSkillPreview.label}：{selectedSkillPreview.value}</span>
+                          <span className="mt-0.5 block text-[color:var(--parchment-muted)]">{selectedSkillPreview.note}</span>
+                        </div>
+                      ) : null}
+                      <p className="mt-2 text-sm font-semibold text-[color:var(--gold-300)]">技能已选择——请点击上方高亮目标释放。</p>
+                    </div>
                   ) : null}
                 </>
               ) : (

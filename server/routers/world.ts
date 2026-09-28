@@ -5,6 +5,7 @@ import { gameProfiles, nodeStates, profileBuildings, regionStates, storyScenes, 
 import { getDb } from "../db";
 import { NODE_BY_KEY, NODE_SEEDS, NODE_TYPE_LABEL, REGION_SEEDS } from "../game/data/world";
 import { controlPercent, round } from "../game/formulas";
+import { normalizeLeaderSkillLevels } from "../game/leadership";
 import { advanceQuestProgress, recomputeRegionControl, syncUnlocks } from "../game/progress";
 import { addResources, getMembershipBenefits, getStoryFlags, loadRoster, loadTeams, nodeUnlockCheck, regionUnlockCheck, setStoryFlag } from "../game/service";
 import { protectedProcedure, router } from "../_core/trpc";
@@ -38,7 +39,7 @@ async function settleTrade(profileId: number, forcedHours?: number, onlyExpired 
   if (active.length === 0) return { gains: {}, hours: 0, processed: 0, autoDispatched: false };
 
   const [profile] = await db
-    .select({ aetherTradeMicros: gameProfiles.aetherTradeMicros })
+    .select({ aetherTradeMicros: gameProfiles.aetherTradeMicros, leaderSkills: gameProfiles.leaderSkills })
     .from(gameProfiles)
     .where(eq(gameProfiles.id, profileId))
     .limit(1);
@@ -46,6 +47,7 @@ async function settleTrade(profileId: number, forcedHours?: number, onlyExpired 
   const buildingRows = await db.select().from(profileBuildings).where(eq(profileBuildings.profileId, profileId));
   const marketLevel = buildingRows.find((row) => row.buildingKey === "market")?.level ?? 0;
   const tradeMultiplier = marketLevel >= 6 ? 1.15 : 1;
+  const tradeLeadershipMultiplier = 1 + (normalizeLeaderSkillLevels(profile.leaderSkills).trade_pact ?? 0) * 0.03;
   const nodeRows = await db.select().from(nodeStates).where(eq(nodeStates.profileId, profileId));
   const benefits = await getMembershipBenefits(profileId);
   let hours = 0;
@@ -62,7 +64,9 @@ async function settleTrade(profileId: number, forcedHours?: number, onlyExpired 
       const row = nodeRows.find((item) => item.nodeKey === node.nodeKey);
       if (!row || (row.status !== "cleared" && row.status !== "conquered")) continue;
       for (const [key, value] of Object.entries(node.tradeYield ?? {})) {
-        const scaled = Number(value ?? 0) * elapsedHours * tradeMultiplier;
+        // 商路契约只加成常规贸易物资；星辉与声望仍遵循原有地图/市场经济。
+        const receivesLeadershipBonus = ["gold", "food", "wood", "iron"].includes(key);
+        const scaled = Number(value ?? 0) * elapsedHours * tradeMultiplier * (receivesLeadershipBonus ? tradeLeadershipMultiplier : 1);
         if (key === "aether") {
           aetherTradeMicros += Math.round(scaled * AETHER_MICRO_SCALE);
         } else {

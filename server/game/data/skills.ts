@@ -730,3 +730,19 @@ export function skillPowerAtLevel(skill: SkillSeed, level: number): number {
   const perLevel = skill.powerPerLevel ?? 8;
   return skill.power + Math.max(0, Math.min(skill.maxLevel, level) - 1) * perLevel;
 }
+
+/**
+ * 技能的单项效果值（护盾、增益、减益等）随技能等级的成长。
+ * 有基础倍率的伤害/治疗沿用倍率成长；纯效果技能则每级提升其效果数值的 8%。
+ */
+export function skillEffectValueAtLevel(skill: SkillSeed, value: number, level: number): number {
+  const rankOffset = Math.max(0, Math.min(skill.maxLevel, level) - 1);
+  if (rankOffset === 0 || value === 0) return value;
+
+  if (skill.power > 0) {
+    return Math.round(value * (skillPowerAtLevel(skill, level) / skill.power));
+  }
+
+  const perLevel = skill.powerPerLevel ?? 8;
+  return Math.round(value * (1 + (rankOffset * perLevel) / 100));
+}

@@ -373,6 +373,15 @@ export const gameProfiles = mysqlTable(
 	    staminaResetUses: int("staminaResetUses").default(0).notNull(),
 	    tradeRushUses: int("tradeRushUses").default(0).notNull(),
 	    tradeAutoDispatch: boolean("tradeAutoDispatch").default(false).notNull(),
+	    /** 议事厅产出，用于学习领主内政与战术能力。 */
+	    leaderPower: int("leaderPower").default(40).notNull(),
+	    leaderDailyKey: varchar("leaderDailyKey", { length: 16 }).default("").notNull(),
+	    leaderDailyUses: int("leaderDailyUses").default(0).notNull(),
+	    /** AI 议事额度，与领袖力奖励次数分开统计。 */
+	    councilDailyKey: varchar("councilDailyKey", { length: 16 }).default("").notNull(),
+	    councilDailyUses: int("councilDailyUses").default(0).notNull(),
+	    leaderSkills: json("leaderSkills").$type<Record<string, number>>().notNull(),
+	    leaderLoadout: json("leaderLoadout").$type<string[]>().notNull(),
 	    keepLevel: int("keepLevel").default(1).notNull(),
     keepExp: int("keepExp").default(0).notNull(),
     chapter: int("chapter").default(1).notNull(),

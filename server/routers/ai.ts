@@ -1,13 +1,20 @@
 import { TRPCError } from "@trpc/server";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, lt, sql } from "drizzle-orm";
 import { z } from "zod";
-import { aiCallLogs, aiConfigs, aiConversations, aiMessages, characters, playerCharacters } from "../../drizzle/schema";
+import { aiCallLogs, aiConfigs, aiConversations, aiMessages, characters, gameProfiles, playerCharacters } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { decryptSecret, generateCharacterTurns, type AiRuntimeConfig } from "../game/aiClient";
 import { SCENE_LABEL, fallbackTurns, type AiOutput, type PresentCharacter, type SceneKey } from "../game/ai";
 import { applyBondExp } from "../game/formulas";
+import {
+  COUNCIL_FREE_DAILY_LIMIT,
+  COUNCIL_SUPPORTER_DAILY_LIMIT,
+  LEADER_POWER_DAILY_LIMIT,
+  LEADER_POWER_PER_COUNCIL,
+  leadershipDayKey,
+} from "../game/leadership";
 import { advanceQuestProgress } from "../game/progress";
-import { loadRoster } from "../game/service";
+import { getMembershipBenefits, loadRoster } from "../game/service";
 import { ENV } from "../_core/env";
 import { protectedProcedure, router } from "../_core/trpc";
 import { resolveProfile } from "./_shared";
@@ -16,6 +23,117 @@ const SCENES: SceneKey[] = ["council", "campfire", "debate", "banquet"];
 
 /** 玩家输入的内容准则过滤（全年龄向） */
 const PLAYER_BANNED = [/色情/, /性奴/, /裸露/, /羞辱/, /脱衣/];
+
+type CouncilQuota = {
+  used: number;
+  limit: number;
+  remaining: number;
+  membershipActive: boolean;
+};
+
+async function councilQuota(profileId: number): Promise<CouncilQuota> {
+  const db = await getDb();
+  if (!db) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "数据库连接暂不可用" });
+  const dayKey = leadershipDayKey();
+  const [profile] = await db
+    .select({ dailyKey: gameProfiles.councilDailyKey, dailyUses: gameProfiles.councilDailyUses })
+    .from(gameProfiles)
+    .where(eq(gameProfiles.id, profileId))
+    .limit(1);
+  if (!profile) throw new TRPCError({ code: "NOT_FOUND", message: "游戏档案不存在" });
+
+  if (profile.dailyKey !== dayKey) {
+    await db
+      .update(gameProfiles)
+      .set({ councilDailyKey: dayKey, councilDailyUses: 0 })
+      .where(and(eq(gameProfiles.id, profileId), eq(gameProfiles.councilDailyKey, profile.dailyKey)));
+  }
+
+  const membership = await getMembershipBenefits(profileId);
+  const limit = membership.active ? COUNCIL_SUPPORTER_DAILY_LIMIT : COUNCIL_FREE_DAILY_LIMIT;
+  const [current] = await db
+    .select({ dailyUses: gameProfiles.councilDailyUses })
+    .from(gameProfiles)
+    .where(eq(gameProfiles.id, profileId))
+    .limit(1);
+  const used = Math.min(limit, current?.dailyUses ?? 0);
+  return { used, limit, remaining: Math.max(0, limit - used), membershipActive: membership.active };
+}
+
+/**
+ * 在真正向模型发起请求前原子消耗一次议事额度。额度和领袖力奖励分账：
+ * 会员能有更多会谈机会，但依然只能从前五次有效会谈获得领袖力。
+ */
+async function consumeCouncilQuota(profileId: number): Promise<CouncilQuota> {
+  const before = await councilQuota(profileId);
+  if (before.remaining <= 0) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: before.membershipActive ? "今日会员议事次数已用完，明日重置。" : "今日免费议事次数已用完；明日重置，会员可获得更多会谈机会。",
+    });
+  }
+
+  const db = await getDb();
+  if (!db) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "数据库连接暂不可用" });
+  const dayKey = leadershipDayKey();
+  const [result] = await db
+    .update(gameProfiles)
+    .set({ councilDailyUses: sql`${gameProfiles.councilDailyUses} + 1` })
+    .where(
+      and(
+        eq(gameProfiles.id, profileId),
+        eq(gameProfiles.councilDailyKey, dayKey),
+        lt(gameProfiles.councilDailyUses, before.limit),
+      ),
+    );
+  if (Number((result as { affectedRows?: number }).affectedRows ?? 0) <= 0) {
+    throw new TRPCError({ code: "CONFLICT", message: "议事次数状态已变化，请刷新后重试。" });
+  }
+  return councilQuota(profileId);
+}
+
+/**
+ * 一条成功落库的角色回复，才算一次有效议事。
+ * 通过条件更新封顶，避免双击或并发请求绕过每日上限。
+ */
+async function awardLeaderPower(profileId: number) {
+  const db = await getDb();
+  if (!db) return { awarded: false, amount: 0, rewarded: 0, remaining: 0 };
+  const dayKey = leadershipDayKey();
+  const [beforeReset] = await db
+    .select({ leaderDailyKey: gameProfiles.leaderDailyKey })
+    .from(gameProfiles)
+    .where(eq(gameProfiles.id, profileId))
+    .limit(1);
+  if (!beforeReset) return { awarded: false, amount: 0, rewarded: 0, remaining: 0 };
+  if (beforeReset.leaderDailyKey !== dayKey) {
+    await db
+      .update(gameProfiles)
+      .set({ leaderDailyKey: dayKey, leaderDailyUses: 0 })
+      .where(and(eq(gameProfiles.id, profileId), eq(gameProfiles.leaderDailyKey, beforeReset.leaderDailyKey)));
+  }
+
+  const [awardResult] = await db
+    .update(gameProfiles)
+    .set({
+      leaderPower: sql`${gameProfiles.leaderPower} + ${LEADER_POWER_PER_COUNCIL}`,
+      leaderDailyUses: sql`${gameProfiles.leaderDailyUses} + 1`,
+    })
+    .where(and(eq(gameProfiles.id, profileId), eq(gameProfiles.leaderDailyKey, dayKey), lt(gameProfiles.leaderDailyUses, LEADER_POWER_DAILY_LIMIT)));
+
+  const [profile] = await db
+    .select({ leaderDailyUses: gameProfiles.leaderDailyUses })
+    .from(gameProfiles)
+    .where(eq(gameProfiles.id, profileId))
+    .limit(1);
+  const rewarded = Math.min(LEADER_POWER_DAILY_LIMIT, profile?.leaderDailyUses ?? 0);
+  return {
+    awarded: Number((awardResult as { affectedRows?: number }).affectedRows ?? 0) > 0,
+    amount: Number((awardResult as { affectedRows?: number }).affectedRows ?? 0) > 0 ? LEADER_POWER_PER_COUNCIL : 0,
+    rewarded,
+    remaining: Math.max(0, LEADER_POWER_DAILY_LIMIT - rewarded),
+  };
+}
 
 /** 读取当前生效的 AI 配置（仅服务端可见；API Key 解密后仅用于当次调用，不返回前端） */
 async function loadRuntimeConfig(): Promise<AiRuntimeConfig> {
@@ -106,6 +224,7 @@ export const aiRouter = router({
           model: active.model,
         };
       })(),
+      councilQuota: await councilQuota(profile.id),
       contentNote: "AI 只会扮演你当前选中的在场角色；全部互动遵守全年龄向内容准则。",
     };
   }),
@@ -302,6 +421,9 @@ export const aiRouter = router({
         };
       });
 
+      // 所有输入与名册校验完成后才扣次数，避免无效操作消耗 AI 额度。
+      const councilQuotaAfter = await consumeCouncilQuota(profile.id);
+
       const history = await db
         .select()
         .from(aiMessages)
@@ -429,6 +551,10 @@ export const aiRouter = router({
 
       await advanceQuestProgress(profile.id, [{ type: "talk_ai", charKey: input.activeCharKey ?? null }]);
 
+      const leaderReward = savedTurns.length > 0
+        ? await awardLeaderPower(profile.id)
+        : { awarded: false, amount: 0, rewarded: 0, remaining: LEADER_POWER_DAILY_LIMIT };
+
       return {
         ok: true,
         status: result.status,
@@ -442,6 +568,8 @@ export const aiRouter = router({
         presentCharKeys: presentKeys,
         turnCount: conversation.turnCount + 1,
         configuredVia: config.name,
+        leaderReward,
+        councilQuota: councilQuotaAfter,
       };
     }),
 

@@ -4,7 +4,8 @@ import { z } from "zod";
 import { battles, gameProfiles, nodeStates, regionStates, teams } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { NODE_BY_KEY, NODE_SEEDS } from "../game/data/world";
-import { SKILL_BY_KEY } from "../game/data/skills";
+import { SKILL_BY_KEY, skillPowerAtLevel } from "../game/data/skills";
+import { createLeaderCommandState, LEADERSHIP_BY_KEY } from "../game/leadership";
 import { JOB_ROLE, MAX_LEVEL_BY_ASCENSION, round, type JobKey, type StatBlock } from "../game/formulas";
 import { advanceQuestProgress, recomputeRegionControl, syncUnlocks } from "../game/progress";
 import {
@@ -14,6 +15,7 @@ import {
   computeRewards,
   createRng,
   executeAction,
+  executeLeaderCommand,
   startBattle,
   type BattleState,
   type BattleUnitInput,
@@ -105,6 +107,28 @@ function serializeState(state: BattleState) {
     finished: state.finished,
     awaitingUnitId: state.awaitingUnitId,
     rating: state.rating,
+    leaderCommands: state.leaderCommands ? {
+      points: state.leaderCommands.points,
+      maxPoints: state.leaderCommands.maxPoints,
+      lastCommandTurn: state.leaderCommands.lastCommandTurn,
+      // 以下原始字段随战斗状态持久化；tactics 是前端展示用的派生数据。
+      loadout: state.leaderCommands.loadout,
+      levels: state.leaderCommands.levels,
+      usedKeys: state.leaderCommands.usedKeys,
+      tactics: state.leaderCommands.loadout.map((key) => {
+        const command = LEADERSHIP_BY_KEY.get(key);
+        const level = state.leaderCommands?.levels[key] ?? 0;
+        return command ? {
+          key,
+          name: command.name,
+          description: command.description,
+          level,
+          pointsCost: command.pointsCost ?? 1,
+          targetType: command.targetType ?? "none",
+          used: state.leaderCommands?.usedKeys.includes(key) ?? false,
+        } : null;
+      }).filter(Boolean),
+    } : null,
     order: state.order,
     /** 只保留最近 200 条，避免行数据无限膨胀 */
     log: state.log.slice(-200),
@@ -142,10 +166,12 @@ function serializeState(state: BattleState) {
           kind: config?.kind ?? "active",
           targetType: config?.targetType ?? "enemy",
           power: config?.power ?? 100,
+          currentPower: config ? skillPowerAtLevel(config, skill.level) : 100,
           cooldown: config?.cooldown ?? 0,
           energyCost: config?.energyCost ?? 0,
           iconKey: config?.iconKey ?? "sword",
           description: config?.description ?? "",
+          effects: config?.effects ?? [],
           ready: (unit.cooldowns[skill.skillKey] ?? 0) <= 0 && unit.energy >= (config?.energyCost ?? 0),
           cooldownLeft: unit.cooldowns[skill.skillKey] ?? 0,
         };
@@ -225,6 +251,7 @@ export const battleRouter = router({
       seed,
     });
     state.keepBonusReduction = bonus.damageReduction;
+    state.leaderCommands = createLeaderCommandState(profileRow.leaderSkills, profileRow.leaderLoadout);
 
     // 扣除体力
     await db
@@ -311,6 +338,9 @@ export const battleRouter = router({
 
       const allowed = new Set([...actor.skills.map((skill) => skill.skillKey), "defend"]);
       if (!allowed.has(input.actionKey)) throw new TRPCError({ code: "FORBIDDEN", message: "该单位不具备此技能" });
+      if (SKILL_BY_KEY.get(input.actionKey)?.kind === "passive") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "被动技能会自动生效，不能主动释放" });
+      }
 
       const rng = createRng(state.rngSeed + state.turn * 7919 + Math.floor(Math.random() * 1000));
       const events = executeAction(state, { unitId: actor.id, actionKey: input.actionKey, targetId: input.targetId }, rng);
@@ -320,6 +350,38 @@ export const battleRouter = router({
         advanceToNextActor(state, rng);
       }
 
+      const finished = await persistBattle(profile.id, row.id, state, events);
+      return { ok: true, events, state: serializeState(state), finished };
+    }),
+
+  /** 领主指令：不占角色回合，但每回合至多一次、每项每场至多一次。 */
+  command: protectedProcedure
+    .input(z.object({ battleId: z.number().int().positive(), commandKey: z.string().min(1).max(64), targetId: z.string().max(64).optional() }))
+    .mutation(async ({ ctx, input }) => {
+      const profile = await resolveProfile(ctx);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "数据库连接暂不可用" });
+      const [row] = await db.select().from(battles).where(and(eq(battles.id, input.battleId), eq(battles.profileId, profile.id))).limit(1);
+      if (!row || row.status !== "active") throw new TRPCError({ code: "NOT_FOUND", message: "进行中的战斗不存在" });
+      const state = row.state as unknown as BattleState;
+      if (state.finished || !state.awaitingUnitId) throw new TRPCError({ code: "BAD_REQUEST", message: "请在我方等待行动时下达领主指令" });
+      const commands = state.leaderCommands;
+      const command = LEADERSHIP_BY_KEY.get(input.commandKey);
+      if (!commands || !command || command.category !== "tactic" || !commands.loadout.includes(input.commandKey)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "该领主指令未装备" });
+      }
+      if ((commands.levels[input.commandKey] ?? 0) < 1 || commands.usedKeys.includes(input.commandKey)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "该领主指令本场已使用" });
+      }
+      if (commands.lastCommandTurn === state.turn) throw new TRPCError({ code: "BAD_REQUEST", message: "本回合已下达过领主指令" });
+      if (commands.points < (command.pointsCost ?? 1)) throw new TRPCError({ code: "BAD_REQUEST", message: "指挥点不足" });
+      const target = state.units.find((unit) => unit.id === input.targetId);
+      if (command.targetType === "enemy" && (!target || target.side !== "enemy" || !target.alive)) throw new TRPCError({ code: "BAD_REQUEST", message: "请选择一名存活敌人" });
+      if (command.targetType === "ally_down" && (!target || target.side !== "ally" || target.alive)) throw new TRPCError({ code: "BAD_REQUEST", message: "请选择一名倒下的友军" });
+
+      const rng = createRng(state.rngSeed + state.turn * 15485863 + Math.floor(Math.random() * 1000));
+      const events = executeLeaderCommand(state, input.commandKey, input.targetId, rng);
+      if (checkBattleEnd(state, events)) state.awaitingUnitId = null;
       const finished = await persistBattle(profile.id, row.id, state, events);
       return { ok: true, events, state: serializeState(state), finished };
     }),

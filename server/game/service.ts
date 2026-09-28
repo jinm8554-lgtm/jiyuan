@@ -21,6 +21,7 @@ import { BUILDING_BY_KEY, BUILDING_SEEDS } from "./data/buildings";
 import { EQUIPMENT_SEEDS, SET_BONUSES } from "./data/equipments";
 import { NODE_BY_KEY, NODE_SEEDS, REGION_SEEDS } from "./data/world";
 import { STARTER_CHAR_KEYS } from "./data/characters";
+import { normalizeLeaderSkillLevels } from "./leadership";
 import {
   addStats,
   applyBondExp,
@@ -65,6 +66,8 @@ export async function createProfile(userId: number, lordName: string, keepName =
       familyNameChanged: false,
       pendingEvents: [],
       settings: {},
+      leaderSkills: {},
+      leaderLoadout: [],
     })
     .$returningId();
   const profileId = result.id;
@@ -260,12 +263,23 @@ export async function accrueProfile(profileId: number, now = new Date()): Promis
     }
   }
 
+  const leaderSkills = normalizeLeaderSkillLevels(profile.leaderSkills);
+  const financeMultiplier = 1 + (leaderSkills.stewardship ?? 0) * 0.02;
+  const materialMultiplier = 1 + (leaderSkills.materials ?? 0) * 0.02;
   const entries = buildings
     .filter((b) => b.level > 0)
     .map((b) => {
       const config = BUILDING_BY_KEY.get(b.buildingKey);
       const levelConfig = config?.levels.find((l) => Number(l.level) === b.level);
-      return { produce: (levelConfig?.produce ?? {}) as Record<string, number>, level: 1 };
+      const baseProduce = (levelConfig?.produce ?? {}) as Record<string, number>;
+      const produce = Object.fromEntries(Object.entries(baseProduce).map(([key, rawValue]) => {
+        const value = Number(rawValue ?? 0);
+        // 领主内政只提高正向的常规资源产出：不放大星辉，也不抵消兵营/工坊的维护消耗。
+        if (key === "gold" && value > 0) return [key, value * financeMultiplier];
+        if (["food", "wood", "iron"].includes(key) && value > 0) return [key, value * materialMultiplier];
+        return [key, value];
+      }));
+      return { produce, level: 1 };
     });
   const perHour = bundleFromEntries(entries);
 

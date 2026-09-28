@@ -4,6 +4,7 @@ import { z } from "zod";
 import { characters, equipments, playerCharacters, playerEquipments, skills } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { EQUIPMENT_SEEDS, SET_BONUSES, SLOT_LABEL } from "../game/data/equipments";
+import { SKILL_BY_KEY, skillEffectValueAtLevel, skillPowerAtLevel } from "../game/data/skills";
 import {
   ASCENSION_STAT_BONUS,
   MAX_LEVEL_BY_ASCENSION,
@@ -277,22 +278,35 @@ export const characterRouter = router({
       bondExp: entry?.bondExp ?? 0,
       affection: entry?.affection ?? 0,
       curve: curveSamples,
-      skills: skillConfigs.map((skill) => ({
-        skillKey: skill.skillKey,
-        name: skill.name,
-        element: skill.element,
-        kind: skill.kind,
-        targetType: skill.targetType,
-        power: skill.power,
-        cooldown: skill.cooldown,
-        energyCost: skill.energyCost,
-        maxLevel: skill.maxLevel,
-        description: skill.description,
-        effects: skill.effects,
-        iconKey: skill.iconKey,
-        level: entry ? (entry.skillLevels?.[skill.skillKey] ?? 1) : 1,
-        nextCost: skillUpgradeCost(entry ? (entry.skillLevels?.[skill.skillKey] ?? 1) : 1, config.rarity),
-      })),
+      skills: skillConfigs.map((skill) => {
+        const level = entry ? (entry.skillLevels?.[skill.skillKey] ?? 1) : 1;
+        // 战斗按种子配置结算；详情页复用同一套成长规则，避免显示与实战不一致。
+        const battleSkill = SKILL_BY_KEY.get(skill.skillKey);
+        const currentPower = battleSkill ? skillPowerAtLevel(battleSkill, level) : skill.power + Math.max(0, Math.min(skill.maxLevel, level) - 1) * skill.powerPerLevel;
+        return {
+          skillKey: skill.skillKey,
+          name: skill.name,
+          element: skill.element,
+          kind: skill.kind,
+          targetType: skill.targetType,
+          power: skill.power,
+          powerPerLevel: battleSkill?.powerPerLevel ?? 8,
+          currentPower,
+          cooldown: skill.cooldown,
+          energyCost: skill.energyCost,
+          maxLevel: skill.maxLevel,
+          description: skill.description,
+          effects: (skill.effects ?? []).map((effect) => {
+            const rawValue = Number(effect.value);
+            return Number.isFinite(rawValue) && battleSkill
+              ? { ...effect, currentValue: skillEffectValueAtLevel(battleSkill, rawValue, level) }
+              : effect;
+          }),
+          iconKey: skill.iconKey,
+          level,
+          nextCost: skillUpgradeCost(level, config.rarity),
+        };
+      }),
       equipped: equippedView,
       inventory,
       activeSets,

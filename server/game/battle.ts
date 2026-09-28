@@ -10,7 +10,8 @@ import {
   type JobKey,
   type StatBlock,
 } from "./formulas";
-import { SKILL_BY_KEY, skillPowerAtLevel, type SkillSeed } from "./data/skills";
+import { SKILL_BY_KEY, skillEffectValueAtLevel, type SkillSeed } from "./data/skills";
+import { LEADERSHIP_BY_KEY, tacticMagnitude, type LeaderCommandState } from "./leadership";
 
 /**
  * 回合制战斗引擎（服务端权威 · 纯函数）
@@ -111,6 +112,8 @@ export type BattleState = {
   rating: number;
   /** 领地城墙等提供的全队减伤（0..1），来自建筑等级 */
   keepBonusReduction?: number;
+  /** 领主指令独立于伙伴行动/能量，随战斗状态持久化。 */
+  leaderCommands?: LeaderCommandState;
 };
 
 export type BattleUnitInput = {
@@ -432,7 +435,6 @@ export function executeAction(state: BattleState, action: BattleAction, rng: () 
   const isDefend = action.actionKey === "defend";
   const skillEntry = isDefend ? undefined : SKILL_BY_KEY.get(action.actionKey);
   const skillLevel = actor.skills.find((s) => s.skillKey === action.actionKey)?.level ?? 1;
-  const power = skillEntry ? skillPowerAtLevel(skillEntry, skillLevel) : 100;
 
   const allies = livingUnits(state, actor.side);
   const enemies = livingUnits(state, actor.side === "ally" ? "enemy" : "ally");
@@ -470,12 +472,10 @@ export function executeAction(state: BattleState, action: BattleAction, rng: () 
     text: `${actor.name} 使用「${skillEntry.name}」`,
   });
 
-  const powerScale = power / Math.max(1, skillEntry.power);
-
   for (const effect of skillEntry.effects) {
     const type = String(effect.type ?? "");
     const rawValue = Number(effect.value ?? 0);
-    const value = effect.type === "damage" || effect.type === "heal" ? round(rawValue * powerScale) : rawValue;
+    const value = skillEffectValueAtLevel(skillEntry, rawValue, skillLevel);
     const chance = effect.chance === undefined ? 100 : Number(effect.chance);
     const effectScope = String(effect.scope ?? (scope === "all_allies" ? "all_allies" : scope === "all_enemies" ? "all_enemies" : "single"));
 
@@ -635,6 +635,91 @@ export function executeAction(state: BattleState, action: BattleAction, rng: () 
   return events;
 }
 
+/** 执行一条装备中的领主指令；不推进伙伴行动，也不消耗伙伴能量。 */
+export function executeLeaderCommand(state: BattleState, commandKey: string, targetId: string | undefined, rng: () => number): BattleEvent[] {
+  const events: BattleEvent[] = [];
+  const commandState = state.leaderCommands;
+  const command = LEADERSHIP_BY_KEY.get(commandKey);
+  if (!commandState || !command || command.category !== "tactic") return events;
+  const level = commandState.levels[commandKey] ?? 0;
+  if (level < 1) return events;
+
+  const allies = livingUnits(state, "ally");
+  const enemies = livingUnits(state, "enemy");
+  const target = findUnit(state, targetId);
+  const magnitude = tacticMagnitude(commandKey, level);
+  events.push({
+    turn: state.turn,
+    type: "action",
+    actorId: "lord",
+    actorName: "领主",
+    actionKey: commandKey,
+    actionName: command.name,
+    targetId: target?.id,
+    targetName: target?.name,
+    text: `领主下达「${command.name}」`,
+  });
+
+  if (commandKey === "field_medicine") {
+    for (const ally of allies) applyHeal(ally, round(ally.maxHp * (magnitude / 100)), state, events, state.turn);
+  } else if (commandKey === "fortify_order") {
+    for (const ally of allies) {
+      pushStatus(ally, {
+        type: "shield",
+        value: round(ally.maxHp * (magnitude / 100)),
+        duration: 2,
+        sourceKey: commandKey,
+        label: command.name,
+      }, state, events, state.turn);
+    }
+  } else if (commandKey === "coordinated_strike" && target?.side === "enemy" && target.alive) {
+    const source = [...allies].sort((a, b) => Math.max(statsFor(b).atk, statsFor(b).mag) - Math.max(statsFor(a).atk, statsFor(a).mag))[0];
+    if (source) {
+      const sourceStats = statsFor(source);
+      const result = resolveDamage({
+        attacker: sourceStats,
+        defender: {
+          ...statsFor(target),
+          def: defenseValue(target, source.element),
+          res: defenseValue(target, source.element),
+        },
+        power: magnitude,
+        attackElement: source.element,
+        roll: rng(),
+      });
+      if (result.hit) {
+        const value = Math.max(1, round(result.value));
+        applyDamage(target, value, state, events, state.turn, source);
+        events.push({
+          turn: state.turn,
+          type: "damage",
+          actorId: "lord",
+          actorName: "领主",
+          targetId: target.id,
+          targetName: target.name,
+          value,
+          element: source.element,
+          crit: result.crit,
+          text: `${target.name} 受到 ${value} 点协同伤害`,
+        });
+      } else {
+        events.push({ turn: state.turn, type: "info", actorId: "lord", actorName: "领主", targetId: target.id, targetName: target.name, text: `${target.name} 闪过了联合集火。` });
+      }
+    }
+  } else if (commandKey === "revival_order" && target?.side === "ally" && !target.alive) {
+    target.alive = true;
+    target.hp = Math.max(1, round(target.maxHp * (magnitude / 100)));
+    target.shield = 0;
+    target.statuses = [];
+    events.push({ turn: state.turn, type: "revive", actorId: "lord", actorName: "领主", targetId: target.id, targetName: target.name, value: target.hp, text: `${target.name} 在领主军令下重返战场。` });
+  }
+
+  commandState.points = Math.max(0, commandState.points - (command.pointsCost ?? 1));
+  commandState.usedKeys = [...commandState.usedKeys, commandKey];
+  commandState.lastCommandTurn = state.turn;
+  return events;
+}
+
 function ctxReduction(state: BattleState): number {
   return state.keepBonusReduction ?? 0;
 }
@@ -675,6 +760,9 @@ export function endTurn(state: BattleState, events: BattleEvent[], rng: () => nu
     }
     unit.energy = Math.min(unit.energyMax, unit.energy + 8);
     void rng;
+  }
+  if (state.leaderCommands) {
+    state.leaderCommands.points = Math.min(state.leaderCommands.maxPoints, state.leaderCommands.points + 1);
   }
 }
 

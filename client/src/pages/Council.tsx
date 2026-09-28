@@ -64,6 +64,7 @@ function groupMessagesByTurn(messages: MessageView[]) {
 export default function Council() {
   const utils = trpc.useUtils();
   const cast = trpc.ai.cast.useQuery();
+  const leadership = trpc.leadership.state.useQuery();
   const playerName = usePlayerName();
 
   const [conversationId, setConversationId] = useState<number | null>(null);
@@ -79,6 +80,22 @@ const [scene, setScene] = useState<SceneKey>("council");
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
   const conversation = trpc.ai.conversation.useQuery({ conversationId: conversationId ?? 0 }, { enabled: Boolean(conversationId) });
+
+  const upgradeLeadership = trpc.leadership.upgrade.useMutation({
+    onSuccess: async (result) => {
+      toast.success("统御能力已提升", { description: `消耗 ${result.cost} 点领袖力，当前等级 ${result.level}` });
+      await leadership.refetch();
+    },
+    onError: (error) => toast.error("学习失败", { description: error.message }),
+  });
+
+  const equipLeadership = trpc.leadership.equip.useMutation({
+    onSuccess: async () => {
+      toast.success("战术指令配置已保存");
+      await leadership.refetch();
+    },
+    onError: (error) => toast.error("配置失败", { description: error.message }),
+  });
 
   const openConversation = trpc.ai.openConversation.useMutation({
     onSuccess: async (result) => {
@@ -134,7 +151,11 @@ const [scene, setScene] = useState<SceneKey>("council");
         utils.ai.latest.invalidate(),
         utils.ai.cast.invalidate(),
         utils.keep.quests.invalidate(),
+        utils.leadership.state.invalidate(),
       ]);
+      if (result.leaderReward?.awarded) {
+        toast.success(`有效议事 · 领袖力 +${result.leaderReward.amount}`, { description: `今日议事奖励 ${result.leaderReward.rewarded}/5` });
+      }
       // 查询已刷新为服务端完整记录，清除临时消息，避免随后切换会谈时重复显示。
       setLiveMessages([]);
     },
@@ -231,6 +252,7 @@ const [scene, setScene] = useState<SceneKey>("council");
   }
 
   const castData = cast.data;
+  const hasCouncilQuota = castData.councilQuota.remaining > 0;
   const renderMessage = (message: MessageView, index: number, keyPrefix: string) => {
     const isPlayer = message.role === "player";
     const isNarrator = message.role === "narrator";
@@ -353,15 +375,17 @@ const [scene, setScene] = useState<SceneKey>("council");
 
               {/* 输入区 */}
               <div className="mt-3 space-y-2">
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-sm border border-[color:var(--aether-500)]/45 bg-[color:var(--ink-950)]/65 px-2.5 py-1.5 text-[0.66rem]">
+                  {leadership.data?.unlocked ? <span className="flex items-center gap-1.5 text-[color:var(--aether-300)]"><Sparkles size={12} /> 领袖力 {leadership.data.leaderPower}</span> : <span className="text-[color:var(--parchment-muted)]">建造议事厅 1 级后可获得领袖力</span>}
+                  <span className="text-[color:var(--parchment-muted)]">今日议事 {castData.councilQuota.used}/{castData.councilQuota.limit}</span>
+                  {leadership.data?.unlocked ? <span className="text-[color:var(--parchment-muted)]">{leadership.data.daily.remaining > 0 ? `本次成功议事可得 +${leadership.data.daily.rewardPerMeeting}` : "今日领袖力奖励已领完"}</span> : null}
+                </div>
                 {violations.length > 0 ? (
-                  <div className="rounded-sm border border-[color:var(--ember-600)]/60 bg-[color:var(--ink-900)]/90 p-2 text-[0.66rem] text-[color:var(--ember-400)]">
+                  <div className="rounded-sm border border-[color:var(--gold-600)]/55 bg-[color:var(--ink-900)]/90 p-2 text-[0.66rem] text-[color:var(--parchment-dim)]">
                     <p className="mb-1 flex items-center gap-1.5">
                       <AlertTriangle size={12} />
-                      以下模型输出被服务端拒绝（未知角色 ID / 越界设定 / 内容不合规 / 结构错误）：
+                      本次模型回复格式未通过校验，已自动改用本地叙事；详细诊断已记录在 GM 后台的「最近 AI 调用」。
                     </p>
-                    {violations.map((violation, index) => (
-                      <p key={index}>· [{violation.code}] {violation.detail}</p>
-                    ))}
                   </div>
                 ) : null}
                 <div className="flex gap-2">
@@ -369,19 +393,20 @@ const [scene, setScene] = useState<SceneKey>("council");
                     value={input}
                     onChange={(event) => setInput(event.target.value)}
                     placeholder={hasPresence ? "向在场角色提问，例如：南墙的修缮应该先动哪里？" : "请先选择在场角色"}
-                    disabled={!conversationId || !hasPresence || talk.isPending}
+                    disabled={!conversationId || !hasPresence || !hasCouncilQuota || talk.isPending}
                     rows={2}
                     maxLength={500}
                     className="min-h-[44px] resize-none border-[color:var(--ink-500)]/70 bg-[color:var(--ink-950)]/85 text-sm text-[color:var(--parchment)]"
                   />
                   <Button
                     className="btn-gold shrink-0 border-transparent text-[color:var(--ink-950)]"
-                    disabled={!conversationId || !hasPresence || !input.trim() || talk.isPending}
+                    disabled={!conversationId || !hasPresence || !hasCouncilQuota || !input.trim() || talk.isPending}
                     onClick={() => talk.mutate({ conversationId: conversationId!, message: input.trim(), activeCharKey: activeCharKey === ALL_ACTIVE ? null : activeCharKey, presentKeys })}
                   >
-                    {talk.isPending ? "发言中…" : (<><Send size={14} className="mr-1" />发言</>)}
+                    {talk.isPending ? "发言中…" : !hasCouncilQuota ? "今日已用完" : (<><Send size={14} className="mr-1" />发言</>)}
                   </Button>
                 </div>
+                {!hasCouncilQuota ? <p className="text-[0.66rem] text-[color:var(--danger-400)]">今日议事次数已用完，明日重置。{castData.councilQuota.membershipActive ? "" : "会员可获得更多会谈机会。"}</p> : null}
                 {activeCharacter ? (
                   <p className="text-[0.66rem] text-[color:var(--parchment-muted)]">
                     当前点名：<span className="text-[color:var(--gold-300)]">{activeCharacter.name}</span>（{activeCharacter.title}）优先回应；在场其他角色仍可插话或保持沉默。
@@ -391,6 +416,105 @@ const [scene, setScene] = useState<SceneKey>("council");
                 )}
               </div>
             </div>
+          </Panel>
+
+          <Panel>
+            <SectionTitle
+              eyebrow="Leadership"
+              title="领主统御"
+              action={leadership.data ? <span className="text-numeric text-xs text-[color:var(--gold-300)]">领袖力 {leadership.data.leaderPower}</span> : null}
+            />
+            <GoldRule />
+            {leadership.isLoading ? (
+              <p className="text-xs text-[color:var(--parchment-muted)]">统御档案读取中…</p>
+            ) : leadership.data?.unlocked ? (
+              <div className="space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-sm border border-[color:var(--aether-500)]/45 bg-[color:var(--ink-950)]/45 px-3 py-2 text-xs">
+                  <span className="text-[color:var(--aether-300)]">每日议事奖励 {leadership.data.daily.rewarded}/{leadership.data.daily.limit}</span>
+                  <span className="text-[color:var(--parchment-muted)]">每次有效议事 +{leadership.data.daily.rewardPerMeeting}，额外会谈不再增加领袖力</span>
+                </div>
+
+                <div>
+                  <div className="text-caption mb-2">内政能力</div>
+                  <div className="grid gap-2 sm:grid-cols-3">
+                    {leadership.data.interior.map((skill) => {
+                      const maxed = skill.level >= skill.maxLevel;
+                      return (
+                        <div key={skill.key} className="rounded-sm border border-[color:var(--ink-500)]/60 bg-[color:var(--ink-800)]/50 p-2.5">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-sm text-[color:var(--parchment)]">{skill.name}</span>
+                            <span className="text-numeric text-[0.66rem] text-[color:var(--gold-300)]">LV.{skill.level}/{skill.maxLevel}</span>
+                          </div>
+                          <p className="mt-1 min-h-9 text-[0.66rem] leading-relaxed text-[color:var(--parchment-muted)]">{skill.currentEffect ?? skill.description}</p>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="mt-2 h-7 w-full border-[color:var(--gold-600)]/55 text-[0.66rem] text-[color:var(--gold-300)]"
+                            disabled={maxed || upgradeLeadership.isPending || leadership.data.leaderPower < (skill.nextCost ?? 0)}
+                            onClick={() => upgradeLeadership.mutate({ skillKey: skill.key })}
+                          >
+                            {maxed ? "已满级" : `${skill.level === 0 ? "学习" : "升级"}（${skill.nextCost}）`}
+                          </Button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div>
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <span className="text-caption">战术指令</span>
+                    <span className="text-[0.66rem] text-[color:var(--parchment-muted)]">已装备 {leadership.data.loadout.length}/3 · 战斗中不占伙伴行动</span>
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {leadership.data.tactics.map((skill) => {
+                      const maxed = skill.level >= skill.maxLevel;
+                      const equipped = leadership.data.loadout.includes(skill.key);
+                      return (
+                        <div key={skill.key} className={cn("rounded-sm border p-2.5", equipped ? "border-[color:var(--gold-300)]/70 bg-[color:var(--gold-600)]/10" : "border-[color:var(--ink-500)]/60 bg-[color:var(--ink-800)]/50")}>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-sm text-[color:var(--parchment)]">{skill.name}</span>
+                            <span className="text-numeric text-[0.66rem] text-[color:var(--gold-300)]">LV.{skill.level}/{skill.maxLevel}</span>
+                          </div>
+                          <p className="mt-1 text-[0.66rem] leading-relaxed text-[color:var(--parchment-muted)]">{skill.currentEffect ?? skill.description}</p>
+                          <div className="mt-2 flex gap-2">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 flex-1 border-[color:var(--gold-600)]/55 text-[0.66rem] text-[color:var(--gold-300)]"
+                              disabled={maxed || upgradeLeadership.isPending || leadership.data.leaderPower < (skill.nextCost ?? 0)}
+                              onClick={() => upgradeLeadership.mutate({ skillKey: skill.key })}
+                            >
+                              {maxed ? "已满级" : `${skill.level === 0 ? "学习" : "升级"}（${skill.nextCost}）`}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant={equipped ? "default" : "outline"}
+                              className={cn("h-7 flex-1 text-[0.66rem]", equipped && "btn-gold border-transparent text-[color:var(--ink-950)]")}
+                              disabled={!skill.learned || equipLeadership.isPending}
+                              onClick={() => {
+                                const next = equipped
+                                  ? leadership.data.loadout.filter((key) => key !== skill.key)
+                                  : [...leadership.data.loadout, skill.key];
+                                if (next.length > 3) {
+                                  toast.warning("每场战斗最多装备 3 条领主指令");
+                                  return;
+                                }
+                                equipLeadership.mutate({ loadout: next });
+                              }}
+                            >
+                              {equipped ? "卸下" : "装备"}
+                            </Button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <p className="text-xs leading-relaxed text-[color:var(--parchment-muted)]">建造议事厅至 1 级后，可通过每日前 5 次有效会谈获得领袖力，并学习领主内政与战术能力。</p>
+            )}
           </Panel>
 
         </div>
