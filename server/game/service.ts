@@ -143,13 +143,40 @@ export async function createProfile(userId: number, lordName: string, keepName =
   return profileId;
 }
 
+// 同一进程内的并发首屏请求共用一次完整的建档流程，避免一条请求读到半成品档案。
+const profileCreationTasks = new Map<number, Promise<typeof gameProfiles.$inferSelect>>();
+
 export async function ensureProfile(userId: number, lordName: string) {
   const existing = await getProfileByUserId(userId);
   if (existing) return existing;
-  await createProfile(userId, lordName);
-  const created = await getProfileByUserId(userId);
-  if (!created) throw new Error("档案创建失败");
-  return created;
+
+  const pending = profileCreationTasks.get(userId);
+  if (pending) return pending;
+
+  const creation = (async () => {
+    const appeared = await getProfileByUserId(userId);
+    if (appeared) return appeared;
+
+    try {
+      await createProfile(userId, lordName);
+    } catch (error) {
+      // 多实例同时接到新玩家请求时，另一实例可能已抢先创建档案。
+      const raced = await getProfileByUserId(userId);
+      if (raced) return raced;
+      throw error;
+    }
+
+    const created = await getProfileByUserId(userId);
+    if (!created) throw new Error("档案创建失败");
+    return created;
+  })();
+
+  profileCreationTasks.set(userId, creation);
+  try {
+    return await creation;
+  } finally {
+    if (profileCreationTasks.get(userId) === creation) profileCreationTasks.delete(userId);
+  }
 }
 
 /* ====================== 资源与领地结算 ====================== */

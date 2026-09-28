@@ -14,6 +14,24 @@ test("新玩家可以完成登录、建档、首战和招募", async ({ page }) 
     await page.getByRole("button", { name: "进入领地" }).click();
 
     await expect(page).toHaveURL(/\/keep$/);
+    const ritual = page.getByRole("dialog", { name: "首次命名仪式" });
+    await expect(ritual).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(ritual).toBeVisible();
+    await page.getByRole("button", { name: "继续" }).click();
+    await expect(ritual.getByRole("heading", { name: "门" })).toBeVisible();
+    await page.getByRole("button", { name: "继续" }).click();
+    await expect(
+      ritual.getByRole("heading", { name: "账本，和一面旗" })
+    ).toBeVisible();
+    await page.getByRole("button", { name: "继续" }).click();
+    await expect(
+      ritual.getByRole("heading", { name: "你自己写" })
+    ).toBeVisible();
+    await ritual.getByLabel("名").fill("烟测");
+    await ritual.getByLabel("姓").fill("瓦尔登");
+    await ritual.getByRole("button", { name: "落 笔" }).click();
+    await expect(ritual).toBeHidden();
     await expect(
       page.getByRole("heading", { name: /灰隼堡 · 主城/ })
     ).toBeVisible();

@@ -30,6 +30,18 @@ const introNameInput = z.string().trim().max(12);
 
 /** 主城首页所需的全部数据（一次请求返回，减少移动端往返） */
 export const keepRouter = router({
+  /** 首次命名仪式的轻量状态，供游戏外壳决定是否展示覆盖层。 */
+  introStatus: protectedProcedure.query(async ({ ctx }) => {
+    const profile = await resolveProfile(ctx);
+    return {
+      introCompleted: profile.introCompleted,
+      playerGivenName: profile.playerGivenName,
+      playerFamilyName: profile.playerFamilyName ?? DEFAULT_FAMILY_NAME,
+      familyNameChanged: profile.familyNameChanged,
+      lordName: profile.lordName,
+    };
+  }),
+
   home: protectedProcedure.query(async ({ ctx }) => {
     const profile = await resolveProfile(ctx);
     const accrual = await accrueProfile(profile.id);

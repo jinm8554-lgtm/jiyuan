@@ -410,4 +410,23 @@
   .pb-safe {
     padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 0.5rem);
   }
+
+  /* 欢迎仪式正文卡片：仅在边缘叠加旧羊皮纸的焦痕，不降低正文对比度。 */
+  .ritual-parchment-edge {
+    position: relative;
+    background-image:
+      linear-gradient(90deg, rgba(87, 58, 30, 0.13), transparent 8%, transparent 92%, rgba(87, 58, 30, 0.13)),
+      linear-gradient(180deg, rgba(124, 76, 38, 0.18), transparent 4%, transparent 96%, rgba(124, 76, 38, 0.2));
+  }
+  .ritual-parchment-edge::after {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    content: "";
+    opacity: 0.75;
+    background:
+      radial-gradient(ellipse at 8% 0%, rgba(188, 136, 69, 0.22), transparent 24%),
+      radial-gradient(ellipse at 92% 100%, rgba(92, 46, 22, 0.28), transparent 28%);
+    mask-image: linear-gradient(to bottom, black, transparent 8%, transparent 92%, black);
+  }
 }

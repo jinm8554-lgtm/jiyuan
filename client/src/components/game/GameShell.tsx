@@ -9,6 +9,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
+import { WelcomeRitual } from "@/components/welcome/WelcomeRitual";
 import { RESOURCE_ICON, FalconCrest, BuildingIcon, CompassIcon, UsersIcon, AetherRune, HallIcon, BookIcon } from "./GameIcons";
 import { ProgressBar, ResourcePill } from "./ui";
 
@@ -71,6 +72,7 @@ export function GameShell({ children }: { children: React.ReactNode }) {
   const { user, loading, isAuthenticated, logout } = useAuth();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [now, setNow] = useState(() => new Date());
+  const [ritualActive, setRitualActive] = useState(false);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 60_000);
@@ -106,7 +108,8 @@ export function GameShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="flex min-h-screen flex-col">
+    <>
+      <div className="flex min-h-screen flex-col" aria-hidden={ritualActive || undefined} inert={ritualActive || undefined}>
       {/* 顶部栏 */}
       <header className="sticky top-0 z-30 border-b border-[color:var(--ink-500)]/60 bg-[color:var(--ink-950)]/92 backdrop-blur">
         <div className="mx-auto flex max-w-[1500px] items-center gap-3 px-3 py-2 sm:px-5">
@@ -235,7 +238,9 @@ export function GameShell({ children }: { children: React.ReactNode }) {
           })}
         </div>
       </nav>
-    </div>
+      </div>
+      <WelcomeRitual onActivityChange={setRitualActive} />
+    </>
   );
 }
 
