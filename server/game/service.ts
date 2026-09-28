@@ -55,7 +55,17 @@ export async function createProfile(userId: number, lordName: string, keepName =
   if (!db) throw new Error("数据库不可用");
   const [result] = await db
     .insert(gameProfiles)
-    .values({ userId, lordName, keepName, pendingEvents: [], settings: {} })
+    .values({
+      userId,
+      lordName,
+      keepName,
+      introCompleted: false,
+      playerGivenName: null,
+      playerFamilyName: "瓦尔登",
+      familyNameChanged: false,
+      pendingEvents: [],
+      settings: {},
+    })
     .$returningId();
   const profileId = result.id;
 

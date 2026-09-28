@@ -24,6 +24,10 @@ import {
 import { protectedProcedure, router } from "../_core/trpc";
 import { resolveProfile } from "./_shared";
 
+const DEFAULT_FAMILY_NAME = "瓦尔登";
+const FALLBACK_GIVEN_NAMES = ["阿伦", "科尔", "席恩", "玛洛", "恩雅", "薇拉", "托本", "伊莲"] as const;
+const introNameInput = z.string().trim().max(12);
+
 /** 主城首页所需的全部数据（一次请求返回，减少移动端往返） */
 export const keepRouter = router({
   home: protectedProcedure.query(async ({ ctx }) => {
@@ -436,6 +440,59 @@ export const keepRouter = router({
       }
       await syncUnlocks(profile.id);
       return result;
+    }),
+
+  /** 完成首次命名仪式；提交后姓名与仪式状态只写入一次。 */
+  completeIntro: protectedProcedure
+    .input(z.object({ givenName: introNameInput, familyName: introNameInput }))
+    .mutation(async ({ ctx, input }) => {
+      const profile = await resolveProfile(ctx);
+      if (profile.introCompleted) {
+        return {
+          introCompleted: true,
+          playerGivenName: profile.playerGivenName,
+          playerFamilyName: profile.playerFamilyName ?? DEFAULT_FAMILY_NAME,
+          familyNameChanged: profile.familyNameChanged,
+          lordName: profile.lordName,
+          usedFallbackName: false,
+        };
+      }
+
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "数据库连接暂不可用" });
+
+      const usedFallbackName = input.givenName.length === 0;
+      const givenName = usedFallbackName
+        ? FALLBACK_GIVEN_NAMES[profile.id % FALLBACK_GIVEN_NAMES.length]
+        : input.givenName;
+      const familyName = input.familyName || DEFAULT_FAMILY_NAME;
+      const familyNameChanged = familyName !== DEFAULT_FAMILY_NAME;
+      const lordName = `${givenName}·${familyName}`;
+
+      // 条件更新使并发提交时只有第一次可以写入名字；后续请求读取已完成的档案。
+      await db
+        .update(gameProfiles)
+        .set({
+          lordName,
+          introCompleted: true,
+          playerGivenName: givenName,
+          playerFamilyName: familyName,
+          familyNameChanged,
+        })
+        .where(and(eq(gameProfiles.id, profile.id), eq(gameProfiles.introCompleted, false)));
+
+      const [current] = await db.select().from(gameProfiles).where(eq(gameProfiles.id, profile.id)).limit(1);
+      if (!current) throw new TRPCError({ code: "NOT_FOUND", message: "档案不存在" });
+      if (!current.introCompleted) throw new TRPCError({ code: "CONFLICT", message: "命名仪式状态已变化，请重试" });
+
+      return {
+        introCompleted: true,
+        playerGivenName: current.playerGivenName,
+        playerFamilyName: current.playerFamilyName ?? DEFAULT_FAMILY_NAME,
+        familyNameChanged: current.familyNameChanged,
+        lordName: current.lordName,
+        usedFallbackName: current.lordName === lordName ? usedFallbackName : false,
+      };
     }),
 
   /** 更新领地基础信息（领主名 / 城堡名） */

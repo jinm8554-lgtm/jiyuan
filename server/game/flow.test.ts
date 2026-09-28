@@ -108,6 +108,97 @@ flowDescribe("核心流程：从建档到征服", () => {
     expect(profileId).toBeGreaterThan(0);
   }, 60_000);
 
+  async function resetIntro() {
+    let [profile] = await db.select({ id: gameProfiles.id }).from(gameProfiles).where(eq(gameProfiles.userId, playerUserId)).limit(1);
+    if (!profile) {
+      await player.keep.home();
+      [profile] = await db.select({ id: gameProfiles.id }).from(gameProfiles).where(eq(gameProfiles.userId, playerUserId)).limit(1);
+    }
+    if (!profile) throw new Error("首次命名仪式测试未能创建档案");
+
+    const introProfileId = profile.id;
+    await db
+      .update(gameProfiles)
+      .set({ introCompleted: false, playerGivenName: null, playerFamilyName: "瓦尔登", familyNameChanged: false, lordName: "流程测试领主" })
+      .where(eq(gameProfiles.id, introProfileId));
+    return introProfileId;
+  }
+
+  it("1a. 首次命名仪式：空名按档案 id 选择兜底名", async () => {
+    const introProfileId = await resetIntro();
+    const fallback = await player.keep.completeIntro({ givenName: "   ", familyName: "瓦尔登" });
+    const fallbackNames = ["阿伦", "科尔", "席恩", "玛洛", "恩雅", "薇拉", "托本", "伊莲"];
+    const expectedGivenName = fallbackNames[introProfileId % fallbackNames.length];
+
+    expect(fallback).toMatchObject({
+      playerGivenName: expectedGivenName,
+      playerFamilyName: "瓦尔登",
+      lordName: `${expectedGivenName}·瓦尔登`,
+    });
+  }, 60_000);
+
+  it("1b. 首次命名仪式：姓留空时保留默认瓦尔登且不置变更标记", async () => {
+    await resetIntro();
+    const named = await player.keep.completeIntro({ givenName: "莉亚", familyName: "  " });
+
+    expect(named).toMatchObject({
+      introCompleted: true,
+      playerGivenName: "莉亚",
+      playerFamilyName: "瓦尔登",
+      familyNameChanged: false,
+      lordName: "莉亚·瓦尔登",
+    });
+  }, 60_000);
+
+  it("1c. 首次命名仪式：改姓只记录变更标记，不影响养成资源", async () => {
+    const introProfileId = await resetIntro();
+    const [before] = await db
+      .select({ gold: gameProfiles.gold, food: gameProfiles.food, wood: gameProfiles.wood, iron: gameProfiles.iron, aether: gameProfiles.aether, renown: gameProfiles.renown, stamina: gameProfiles.stamina, staminaMax: gameProfiles.staminaMax, keepLevel: gameProfiles.keepLevel, keepExp: gameProfiles.keepExp })
+      .from(gameProfiles)
+      .where(eq(gameProfiles.id, introProfileId))
+      .limit(1);
+
+    const named = await player.keep.completeIntro({ givenName: "莉亚", familyName: "晨星" });
+    const [after] = await db
+      .select({ gold: gameProfiles.gold, food: gameProfiles.food, wood: gameProfiles.wood, iron: gameProfiles.iron, aether: gameProfiles.aether, renown: gameProfiles.renown, stamina: gameProfiles.stamina, staminaMax: gameProfiles.staminaMax, keepLevel: gameProfiles.keepLevel, keepExp: gameProfiles.keepExp })
+      .from(gameProfiles)
+      .where(eq(gameProfiles.id, introProfileId))
+      .limit(1);
+
+    expect(named).toMatchObject({
+      playerGivenName: "莉亚",
+      playerFamilyName: "晨星",
+      familyNameChanged: true,
+      lordName: "莉亚·晨星",
+      usedFallbackName: false,
+    });
+    expect(after).toEqual(before);
+  }, 60_000);
+
+  it("1d. 首次命名仪式：重复调用不会覆盖已写入的名字", async () => {
+    await resetIntro();
+    await player.keep.completeIntro({ givenName: "莉亚", familyName: "晨星" });
+    const repeated = await player.keep.completeIntro({ givenName: "其他名字", familyName: "其他姓氏" });
+
+    expect(repeated).toMatchObject({
+      playerGivenName: "莉亚",
+      playerFamilyName: "晨星",
+      lordName: "莉亚·晨星",
+      usedFallbackName: false,
+    });
+  }, 60_000);
+
+  it("1e. 首次命名仪式：仅空名提交报告 usedFallbackName", async () => {
+    await resetIntro();
+    const fallback = await player.keep.completeIntro({ givenName: "\t ", familyName: "  " });
+
+    expect(fallback).toMatchObject({
+      playerFamilyName: "瓦尔登",
+      familyNameChanged: false,
+      usedFallbackName: true,
+    });
+  }, 60_000);
+
   it("1a. 资源结算只推进一次时间戳，不会重复领取同一段离线产出", async () => {
     const now = new Date();
     await db
