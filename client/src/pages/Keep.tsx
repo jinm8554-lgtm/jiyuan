@@ -3,20 +3,20 @@
  * 布局：左侧领地插画与建筑热点（可点击升级），右侧议事厅待办 + 任务 + 队伍 + 事件
  * 目标：玩家进入游戏即可看到「当前目标」与「可执行行动」
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "wouter";
 import { toast } from "sonner";
-import { ArrowRight, CheckCircle2, Coins, Hammer, ScrollText, Swords, Timer, Users, Volume2, VolumeX } from "lucide-react";
+import { ArrowRight, CheckCircle2, Coins, Hammer, ScrollText, Swords, Timer, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import { PageSection } from "@/components/game/GameShell";
 import { RESOURCE_ICON, AetherRune, BuildingIcon } from "@/components/game/GameIcons";
+import { PageMusic } from "@/components/game/PageMusic";
 import { AllAgesNote, Avatar, EmptyState, ErrorState, GoldRule, LoadingState, Panel, ProgressBar, RarityBadge, ResourcePill, SectionTitle, SkeletonState, Tag } from "@/components/game/ui";
 
 const KEEP_SCENE = "/aetherfall-assets/keep_home_34f36c55.jpg";
-const KEEP_MUSIC_MUTED_KEY = "aetherfall:keep-music-muted";
 
 const BUILDING_CATEGORY_NAME: Record<string, string> = {
   economy: "经济",
@@ -47,92 +47,6 @@ type BuildingView = {
   hotspotX: number;
   hotspotY: number;
 };
-
-/** 仅在主城页面挂载的环境音乐；离开主城时会随组件自动停止。 */
-function KeepMusic() {
-  const audioRef = useRef<HTMLAudioElement>(null);
-  const [muted, setMuted] = useState(() => {
-    try {
-      return window.localStorage.getItem(KEEP_MUSIC_MUTED_KEY) === "true";
-    } catch {
-      return false;
-    }
-  });
-  const [isPlaying, setIsPlaying] = useState(false);
-
-  useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-
-    const removeGestureRetries = () => {
-      window.removeEventListener("pointerdown", retryAfterUserGesture);
-      window.removeEventListener("keydown", retryAfterUserGesture);
-    };
-    const start = () => {
-      audio.muted = false;
-      audio.volume = 0.25;
-      void audio.play()
-        .then(() => {
-          setIsPlaying(true);
-          removeGestureRetries();
-        })
-        .catch(() => {
-          setIsPlaying(false);
-          window.addEventListener("pointerdown", retryAfterUserGesture, { once: true });
-          window.addEventListener("keydown", retryAfterUserGesture, { once: true });
-        });
-    };
-    function retryAfterUserGesture() {
-      start();
-    }
-
-    if (muted) {
-      removeGestureRetries();
-      audio.pause();
-      setIsPlaying(false);
-    } else {
-      start();
-    }
-
-    return () => {
-      removeGestureRetries();
-      audio.pause();
-      setIsPlaying(false);
-    };
-  }, [muted]);
-
-  const toggleMuted = () => {
-    const nextMuted = !muted;
-    setMuted(nextMuted);
-    try {
-      window.localStorage.setItem(KEEP_MUSIC_MUTED_KEY, String(nextMuted));
-    } catch {}
-  };
-
-  const buttonLabel = muted
-    ? "开启主城音乐"
-    : isPlaying
-      ? "静音主城音乐"
-      : "主城音乐已开启，首次交互后自动播放";
-
-  return (
-    <>
-      <audio ref={audioRef} autoPlay loop preload="metadata">
-        <source src="/aetherfall-assets/keep-theme.mp3" type="audio/mpeg" />
-      </audio>
-      <button
-        type="button"
-        className="fixed bottom-20 right-4 z-40 grid h-10 w-10 place-items-center rounded-full border border-[color:var(--gold-600)]/70 bg-[color:var(--ink-950)]/85 text-[color:var(--gold-400)] shadow-lg backdrop-blur transition hover:scale-105 hover:border-[color:var(--gold-400)] hover:text-[color:var(--gold-300)] lg:bottom-5"
-        aria-label={buttonLabel}
-        aria-pressed={!muted}
-        title={buttonLabel}
-        onClick={toggleMuted}
-      >
-        {muted ? <VolumeX size={18} aria-hidden="true" /> : <Volume2 size={18} aria-hidden="true" />}
-      </button>
-    </>
-  );
-}
 
 export default function Keep() {
   const utils = trpc.useUtils();
@@ -203,7 +117,7 @@ export default function Keep() {
   if (home.isLoading) {
     return (
       <>
-        <KeepMusic />
+        <PageMusic src="/aetherfall-assets/desolate-dusk.mp3" storageKey="aetherfall:keep-music-muted" areaName="主城" />
         <PageSection title="灰隼堡 · 主城">
           <SkeletonState rows={4} />
         </PageSection>
@@ -214,7 +128,7 @@ export default function Keep() {
   if (home.isError || !data) {
     return (
       <>
-        <KeepMusic />
+        <PageMusic src="/aetherfall-assets/desolate-dusk.mp3" storageKey="aetherfall:keep-music-muted" areaName="主城" />
         <PageSection title="灰隼堡 · 主城">
           <ErrorState message={home.error?.message ?? "主城数据读取失败"} onRetry={() => home.refetch()} />
         </PageSection>
@@ -227,7 +141,7 @@ export default function Keep() {
 
   return (
     <>
-      <KeepMusic />
+      <PageMusic src="/aetherfall-assets/desolate-dusk.mp3" storageKey="aetherfall:keep-music-muted" areaName="主城" />
       <PageSection title={`${data.lord.keepName} · 主城`} eyebrow={`第 ${data.lord.chapter} 章 · 领主 ${data.lord.name} · 城堡 ${data.lord.level} 级`}>
       {/* 当前目标条 */}
       <Panel gold className="mb-4 p-4">

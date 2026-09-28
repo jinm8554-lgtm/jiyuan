@@ -12,6 +12,7 @@ import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import { PageSection } from "@/components/game/GameShell";
 import { ELEMENT_ICON, JOB_ICON } from "@/components/game/GameIcons";
+import { PageMusic } from "@/components/game/PageMusic";
 import { AllAgesNote, Avatar, ELEMENT_COLOR, EmptyState, ErrorState, GoldRule, JOB_NAME, Panel, RarityBadge, SectionTitle, SkeletonState, Tag } from "@/components/game/ui";
 
 const ALL = "__all__";
@@ -86,25 +87,33 @@ export default function Roster() {
 
   if (roster.isLoading) {
     return (
-      <PageSection title="同伴">
-        <SkeletonState rows={4} />
-      </PageSection>
+      <>
+        <PageMusic src="/aetherfall-assets/keep-theme.mp3" storageKey="aetherfall:roster-music-muted" areaName="同伴" />
+        <PageSection title="同伴">
+          <SkeletonState rows={4} />
+        </PageSection>
+      </>
     );
   }
 
   if (roster.isError || !roster.data) {
     return (
-      <PageSection title="同伴">
-        <ErrorState message={roster.error?.message ?? "名册读取失败"} onRetry={() => roster.refetch()} />
-      </PageSection>
+      <>
+        <PageMusic src="/aetherfall-assets/keep-theme.mp3" storageKey="aetherfall:roster-music-muted" areaName="同伴" />
+        <PageSection title="同伴">
+          <ErrorState message={roster.error?.message ?? "名册读取失败"} onRetry={() => roster.refetch()} />
+        </PageSection>
+      </>
     );
   }
 
   const summary = roster.data.summary;
 
   return (
-    <PageSection
-      title="同伴 · 名册"
+    <>
+      <PageMusic src="/aetherfall-assets/keep-theme.mp3" storageKey="aetherfall:roster-music-muted" areaName="同伴" />
+      <PageSection
+        title="同伴 · 名册"
       eyebrow={`已招募 ${summary.owned}/${summary.total} · 英杰 ${summary.ssrOwned}/${summary.ssrTotal} · 总战力 ${summary.totalPower.toLocaleString("zh-CN")}`}
       actions={
         <div className="flex flex-wrap items-center gap-2">
@@ -356,6 +365,7 @@ export default function Roster() {
           <AllAgesNote />
         </div>
       </div>
-    </PageSection>
+      </PageSection>
+    </>
   );
 }
