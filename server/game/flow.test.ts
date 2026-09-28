@@ -570,7 +570,7 @@ flowDescribe("核心流程：从建档到征服", () => {
     }
   }, 90_000);
 
-  it("9. 剧情：章节可读、选项写入标记与奖励，且不可重复结算", async () => {
+  it("9. 剧情：抉择写入档案、重读保留结果且不可重复结算", async () => {
     const chapters = await player.meta.chapters();
     expect(chapters.chapters.length).toBeGreaterThanOrEqual(6);
     const chapter1 = chapters.scenes.filter((item) => item.chapter === 1);
@@ -584,6 +584,19 @@ flowDescribe("核心流程：从建档到征服", () => {
     expect(scene.choices.length).toBeGreaterThan(0);
     const chosen = await player.world.chooseScene({ sceneKey: scene.sceneKey, choiceIndex: 0 });
     expect(chosen.ok).toBe(true);
+    const reread = await player.world.scene({ sceneKey: scene.sceneKey });
+    expect(reread.decision).toMatchObject({ choiceIndex: 0, choiceText: scene.choices[0]?.text });
+    const archive = await player.world.storyArchive();
+    expect(archive).toEqual(expect.arrayContaining([
+      expect.objectContaining({ sceneKey: scene.sceneKey, choiceText: scene.choices[0]?.text }),
+    ]));
+    const archivedScene = archive.find((entry) => entry.sceneKey === scene.sceneKey);
+    expect(archivedScene?.beats.length).toBe(scene.beats.length);
+    if (archivedScene?.nodeKey) {
+      const node = await player.world.node({ nodeKey: archivedScene.nodeKey });
+      expect(node.storyCompleted).toBe(true);
+    }
+    await expect(player.world.chooseScene({ sceneKey: scene.sceneKey, choiceIndex: 1 })).rejects.toMatchObject({ code: "CONFLICT" });
   }, 90_000);
 
   it("10. AI 议事：未选角色时直接提示且不调用模型；未在场角色不得发言", async () => {

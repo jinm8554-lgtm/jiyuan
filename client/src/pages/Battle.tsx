@@ -12,6 +12,7 @@ import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import { PageSection } from "@/components/game/GameShell";
 import { ELEMENT_ICON, JOB_ICON } from "@/components/game/GameIcons";
+import { PageMusic } from "@/components/game/PageMusic";
 import { ELEMENT_COLOR, ELEMENT_NAME, EmptyState, ErrorState, GoldRule, JOB_NAME, Panel, ProgressBar, SectionTitle, Tag } from "@/components/game/ui";
 
 type UnitView = {
@@ -83,6 +84,7 @@ type FinishedBattleView = {
     rewards?: BattleRewardsView;
     droppedItems?: Array<{ equipKey: string; name: string }>;
   } | null;
+  nextNode?: { nodeKey: string; name: string } | null;
   reserveAvailable?: boolean;
   reserveTeam?: { name: string; memberCount: number } | null;
 };
@@ -130,6 +132,7 @@ export default function Battle() {
   const [events, setEvents] = useState<EventView[]>([]);
   const [battleRewards, setBattleRewards] = useState<BattleRewardsView>({});
   const [droppedItems, setDroppedItems] = useState<Array<{ equipKey: string; name: string }>>([]);
+  const [nextNode, setNextNode] = useState<{ nodeKey: string; name: string } | null>(null);
   const [floating, setFloating] = useState<Record<string, { text: string; tone: string; key: number }>>({});
   const [selectedSkill, setSelectedSkill] = useState<string | null>(null);
   const [pendingTarget, setPendingTarget] = useState<string | null>(null);
@@ -148,6 +151,7 @@ export default function Battle() {
       setEvents((result.events ?? []) as EventView[]);
       setBattleRewards({});
       setDroppedItems([]);
+      setNextNode(null);
       if ((result.state as StateView).finished) {
         if (result.reserveAvailable && result.reserveTeam) setReserveOffer({ name: result.reserveTeam.name, memberCount: result.reserveTeam.memberCount });
         toast.info(result.state.result === "won" ? "战斗已结束：胜利" : "战斗已结束");
@@ -179,6 +183,7 @@ export default function Battle() {
           setBattleRewards(finished.settlement.rewards ?? {});
           setDroppedItems(finished.settlement.droppedItems ?? []);
         }
+        setNextNode(finished.nextNode ?? null);
         if (finished.reserveAvailable && finished.reserveTeam) setReserveOffer({ name: finished.reserveTeam.name, memberCount: finished.reserveTeam.memberCount });
         void utils.battle.recent.invalidate();
         void utils.keep.home.invalidate();
@@ -198,6 +203,7 @@ export default function Battle() {
         setBattleRewards(finished.settlement.rewards ?? {});
         setDroppedItems(finished.settlement.droppedItems ?? []);
       }
+      if ((result.state as StateView).finished) setNextNode(finished.nextNode ?? null);
       if (finished.reserveAvailable && finished.reserveTeam) setReserveOffer({ name: finished.reserveTeam.name, memberCount: finished.reserveTeam.memberCount });
       if (!(result.state as StateView).finished) {
         toast.info("自动推演已暂停", { description: "双方仍有存活单位，可继续指挥或再次自动推演。" });
@@ -225,6 +231,7 @@ export default function Battle() {
       setState(result.state as StateView);
       setBattleRewards({});
       setDroppedItems([]);
+      setNextNode(null);
       setEvents((current) => [...current, ...((result.events ?? []) as EventView[])].slice(-80));
       setSelectedSkill(null);
       setPendingTarget(null);
@@ -239,6 +246,30 @@ export default function Battle() {
     () => worldMap.data?.regions.flatMap((region) => region.nodes).find((item) => item.nodeKey === nodeKey),
     [nodeKey, worldMap.data],
   );
+  const resetBattleView = () => {
+    setBattleId(null);
+    setState(null);
+    setEvents([]);
+    setBattleRewards({});
+    setDroppedItems([]);
+    setNextNode(null);
+    setSelectedSkill(null);
+    setPendingTarget(null);
+    setReserveOffer(null);
+    startedRef.current = false;
+  };
+
+  const startNextBattle = () => {
+    if (!nextNode) return;
+    resetBattleView();
+    navigate(`/battle/${nextNode.nodeKey}`);
+  };
+
+  useEffect(() => {
+    resetBattleView();
+    // 仅在切换到另一关卡时清除上一场战斗的状态。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nodeKey]);
 
   useEffect(() => {
     if (!detail.data?.state || state) return;
@@ -252,6 +283,10 @@ export default function Battle() {
     setBattleRewards(rewards);
     setDroppedItems(rewards.droppedItems ?? []);
   }, [detail.data?.status, detail.data?.rewards, state?.result]);
+
+  useEffect(() => {
+    if (detail.data?.nextNode) setNextNode(detail.data.nextNode);
+  }, [detail.data?.nextNode]);
 
   // 进入页面自动开战一次
   useEffect(() => {
@@ -282,22 +317,30 @@ export default function Battle() {
 
   if (!nodeKey) {
     return (
-      <PageSection title="远征">
-        <EmptyState title="未指定目标节点" hint="请从世界地图选择一个节点后再出征。" action={<Link href="/world"><Button className="btn-gold border-transparent text-[color:var(--ink-950)]">返回地图</Button></Link>} />
-      </PageSection>
+      <>
+        <PageMusic src="/aetherfall-assets/battle-theme.mp3" storageKey="aetherfall:battle-music-muted" areaName="战斗" />
+        <PageSection title="远征">
+          <EmptyState title="未指定目标节点" hint="请从世界地图选择一个节点后再出征。" action={<Link href="/world"><Button className="btn-gold border-transparent text-[color:var(--ink-950)]">返回地图</Button></Link>} />
+        </PageSection>
+      </>
     );
   }
 
   if (mapNode && !mapNode.unlocked && !state && !start.isPending && !start.isError) {
     return (
-      <PageSection title="远征">
-        <EmptyState title="节点尚未解锁" hint={mapNode.lockReason ?? "请先完成前置节点或解锁条件。"} action={<Link href="/world"><Button className="btn-gold border-transparent text-[color:var(--ink-950)]">返回地图</Button></Link>} />
-      </PageSection>
+      <>
+        <PageMusic src="/aetherfall-assets/battle-theme.mp3" storageKey="aetherfall:battle-music-muted" areaName="战斗" />
+        <PageSection title="远征">
+          <EmptyState title="节点尚未解锁" hint={mapNode.lockReason ?? "请先完成前置节点或解锁条件。"} action={<Link href="/world"><Button className="btn-gold border-transparent text-[color:var(--ink-950)]">返回地图</Button></Link>} />
+        </PageSection>
+      </>
     );
   }
 
   return (
-    <PageSection
+    <>
+      <PageMusic src="/aetherfall-assets/battle-theme.mp3" storageKey="aetherfall:battle-music-muted" areaName="战斗" />
+      <PageSection
       title={`远征 · ${node.data?.name ?? nodeKey}`}
       eyebrow={node.data ? `${node.data.nodeTypeLabel} · LV.${node.data.levelMin}-${node.data.levelMax} · 体力 ${node.data.staminaCost}` : "读取节点信息…"}
       actions={
@@ -521,6 +564,11 @@ export default function Battle() {
                     )}
                   </div>
                   <div className="flex flex-wrap gap-2">
+                    {state.result === "won" && nextNode ? (
+                      <Button className="btn-gold border-transparent text-[color:var(--ink-950)]" onClick={startNextBattle}>
+                        下场战斗 · {nextNode.name}
+                      </Button>
+                    ) : null}
                     <Button className="btn-gold border-transparent text-[color:var(--ink-950)]" onClick={() => { startedRef.current = true; setState(null); setBattleRewards({}); setDroppedItems([]); setEvents([]); start.mutate({ nodeKey }); }} disabled={start.isPending}>
                       再战一次
                     </Button>
@@ -754,7 +802,8 @@ export default function Battle() {
           </div>
         </div>
       ) : null}
-    </PageSection>
+      </PageSection>
+    </>
   );
 }
 

@@ -61,6 +61,10 @@ test("新玩家可以完成登录、建档、首战和招募", async ({ page }) 
     await expect(
       page.getByText("远征胜利。奖励已结算并写入你的档案。")
     ).toBeVisible({ timeout: 30_000 });
+    await page.getByRole("button", { name: /下场战斗 · 废弃麦田/ }).click({ timeout: 30_000 });
+    await expect(page).toHaveURL(/\/battle\/sp_ruined_field$/);
+    await expect(page.getByText("正在集结远征队…")).toBeHidden({ timeout: 30_000 });
+    await expect(page.getByTestId("battle-auto-resolve")).toBeVisible();
   });
 
   await test.step("完成一次招募", async () => {
@@ -75,5 +79,17 @@ test("新玩家可以完成登录、建档、首战和招募", async ({ page }) 
       timeout: 30_000,
     });
     await expect(page.getByRole("heading", { name: "招募结果" })).toBeVisible();
+  });
+
+  await test.step("阅览皇家图书馆馆藏", async () => {
+    await page.goto("/chronicle");
+    await expect(page).toHaveURL(/\/chronicle$/);
+    await expect(page.getByRole("heading", { name: "凯尔文尼亚皇家图书馆" })).toBeVisible();
+    await page.getByRole("button", { name: "阅览《王国的六大势力》" }).click();
+    const archive = page.getByRole("dialog");
+    await expect(archive.getByRole("heading", { name: "《王国的六大势力》" })).toBeVisible();
+    await expect(archive.getByText("馆吏按旧卷所记：旧王国的骑士团残部，把秩序当作信仰。")).toBeVisible();
+    await archive.getByRole("button", { name: "合卷" }).click();
+    await expect(archive).toBeHidden();
   });
 });

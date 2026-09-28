@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 import { PageSection } from "@/components/game/GameShell";
 import { AllAgesNote, EmptyState, ErrorState, GoldRule, Panel, ProgressBar, RarityBadge, SectionTitle, SkeletonState, Tag } from "@/components/game/ui";
 import { ELEMENT_ICON, JOB_ICON } from "@/components/game/GameIcons";
+import { PageMusic } from "@/components/game/PageMusic";
 import { JOB_NAME } from "@/components/game/ui";
 
 const WORLD_MAP_ART = "/aetherfall-assets/worldmap_72ac880b.jpg";
@@ -41,9 +42,8 @@ export default function World() {
   const scene = trpc.world.scene.useQuery({ sceneKey: sceneKey ?? "" }, { enabled: Boolean(sceneKey) });
   const chooseScene = trpc.world.chooseScene.useMutation({
     onSuccess: async (result) => {
-      toast.success("选择已生效", { description: result.reply ?? undefined });
-      setSceneKey(null);
-      await Promise.all([utils.world.map.invalidate(), utils.keep.home.invalidate(), utils.keep.quests.invalidate()]);
+      toast.success("抉择已收入档案", { description: result.reply ?? undefined });
+      await Promise.all([utils.world.scene.invalidate(), utils.world.node.invalidate(), utils.world.map.invalidate(), utils.keep.home.invalidate(), utils.keep.quests.invalidate()]);
     },
     onError: (error) => toast.error("处理失败", { description: error.message }),
   });
@@ -95,24 +95,32 @@ export default function World() {
 
   if (map.isLoading) {
     return (
-      <PageSection title="世界地图">
-        <SkeletonState rows={5} />
-      </PageSection>
+      <>
+        <PageMusic src="/aetherfall-assets/world-theme.mp3" storageKey="aetherfall:world-music-muted" areaName="世界地图" />
+        <PageSection title="世界地图">
+          <SkeletonState rows={5} />
+        </PageSection>
+      </>
     );
   }
 
   if (map.isError || !map.data) {
     return (
-      <PageSection title="世界地图">
-        <ErrorState message={map.error?.message ?? "地图读取失败"} onRetry={() => map.refetch()} />
-      </PageSection>
+      <>
+        <PageMusic src="/aetherfall-assets/world-theme.mp3" storageKey="aetherfall:world-music-muted" areaName="世界地图" />
+        <PageSection title="世界地图">
+          <ErrorState message={map.error?.message ?? "地图读取失败"} onRetry={() => map.refetch()} />
+        </PageSection>
+      </>
     );
   }
 
   const { regions, summary } = map.data;
 
   return (
-    <PageSection
+    <>
+      <PageMusic src="/aetherfall-assets/world-theme.mp3" storageKey="aetherfall:world-music-muted" areaName="世界地图" />
+      <PageSection
       title="世界地图 · 银杉边境与邻境"
       eyebrow={`已探索节点 ${summary.clearedNodes}/${summary.totalNodes} · 区域 ${summary.unlockedRegions}/${summary.totalRegions}`}
       actions={
@@ -406,7 +414,7 @@ export default function World() {
                   <Swords size={15} className="mr-1.5" />
                   出征（体力 {activeNode.staminaCost}）
                 </Button>
-                {nodeDetail.data?.storyKey && activeNode.unlocked ? (
+                {nodeDetail.data?.storyKey && activeNode.unlocked && !nodeDetail.data.storyCompleted ? (
                   <Button
                     variant="outline"
                     className="border-[color:var(--aether-500)]/50 text-[color:var(--aether-300)]"
@@ -417,6 +425,7 @@ export default function World() {
                   </Button>
                 ) : null}
               </div>
+              {nodeDetail.data?.storyKey && nodeDetail.data.storyCompleted ? <p className="mt-2 text-[0.66rem] text-[color:var(--parchment-muted)]">此地纪事已收入编年史。</p> : null}
               {!activeNode.unlocked ? <p className="mt-2 text-[0.66rem] text-[color:var(--parchment-muted)]">该节点尚未解锁，无法出征。</p> : null}
             </Panel>
           ) : null}
@@ -446,7 +455,17 @@ export default function World() {
                   </div>
                 ))}
               </div>
-              {(scene.data.choices as Array<{ text?: string; reply?: string }>).length > 0 ? (
+              {scene.data.decision ? (
+                <div className="rounded-sm border border-[color:var(--gold-600)]/55 bg-[color:var(--ink-800)]/65 p-3">
+                  <div className="text-caption text-[color:var(--gold-400)]">已收入边境纪要</div>
+                  <p className="mt-1 text-sm leading-relaxed text-[color:var(--parchment)]">所作抉择：{scene.data.decision.choiceText}</p>
+                  {scene.data.decision.reply ? <p className="mt-2 text-xs leading-relaxed text-[color:var(--parchment-muted)]">{scene.data.decision.reply}</p> : null}
+                  <div className="mt-3 flex items-center justify-between gap-3">
+                    <span className="text-[0.62rem] text-[color:var(--parchment-muted)]">记录于 {new Date(scene.data.decision.recordedAt).toLocaleString("zh-CN")}</span>
+                    <Button variant="outline" className="border-[color:var(--ink-500)]/70" onClick={() => setSceneKey(null)}>合上抄本</Button>
+                  </div>
+                </div>
+              ) : (scene.data.choices as Array<{ text?: string; reply?: string }>).length > 0 ? (
                 <div className="space-y-2">
                   {(scene.data.choices as Array<{ text?: string; reply?: string }>).map((choice, index) => (
                     <button
@@ -466,7 +485,8 @@ export default function World() {
           ) : null}
         </DialogContent>
       </Dialog>
-    </PageSection>
+      </PageSection>
+    </>
   );
 }
 

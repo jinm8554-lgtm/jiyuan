@@ -13,6 +13,7 @@ import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import { PageSection } from "@/components/game/GameShell";
 import { AetherRune } from "@/components/game/GameIcons";
+import { PageMusic } from "@/components/game/PageMusic";
 import { Avatar, EmptyState, ErrorState, GoldRule, Panel, ProgressBar, RarityBadge, SectionTitle, SkeletonState, Tag } from "@/components/game/ui";
 
 const POOL_BANNER = "/aetherfall-assets/keep_banner_999e1122.jpg";
@@ -70,17 +71,23 @@ export default function Recruit() {
 
   if (pools.isLoading) {
     return (
-      <PageSection title="招募">
-        <SkeletonState rows={4} />
-      </PageSection>
+      <>
+        <PageMusic src="/aetherfall-assets/recruit-theme.mp3" storageKey="aetherfall:recruit-music-muted" areaName="招募" />
+        <PageSection title="招募">
+          <SkeletonState rows={4} />
+        </PageSection>
+      </>
     );
   }
 
   if (pools.isError || !pools.data) {
     return (
-      <PageSection title="招募">
-        <ErrorState message={pools.error?.message ?? "卡池读取失败"} onRetry={() => pools.refetch()} />
-      </PageSection>
+      <>
+        <PageMusic src="/aetherfall-assets/recruit-theme.mp3" storageKey="aetherfall:recruit-music-muted" areaName="招募" />
+        <PageSection title="招募">
+          <ErrorState message={pools.error?.message ?? "卡池读取失败"} onRetry={() => pools.refetch()} />
+        </PageSection>
+      </>
     );
   }
 
@@ -88,7 +95,9 @@ export default function Recruit() {
   const recruitShards = resources.data?.resources.recruitShards ?? 0;
 
   return (
-    <PageSection
+    <>
+      <PageMusic src="/aetherfall-assets/recruit-theme.mp3" storageKey="aetherfall:recruit-music-muted" areaName="招募" />
+      <PageSection
       title="招募 · 星辉誓约"
       eyebrow="概率与保底由服务端配置统一管理，客户端无法修改"
       actions={
@@ -399,6 +408,7 @@ export default function Recruit() {
           ) : null}
         </DialogContent>
       </Dialog>
-    </PageSection>
+      </PageSection>
+    </>
   );
 }

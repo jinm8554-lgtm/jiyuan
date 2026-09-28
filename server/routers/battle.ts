@@ -154,6 +154,29 @@ function serializeState(state: BattleState) {
   };
 }
 
+/** 只返回关卡顺序中的紧邻节点，避免“下场战斗”跳过尚未满足条件的关卡。 */
+async function findNextBattleNode(profileId: number, nodeKey: string) {
+  const currentIndex = NODE_SEEDS.findIndex((node) => node.nodeKey === nodeKey);
+  const candidate = currentIndex >= 0 ? NODE_SEEDS[currentIndex + 1] : undefined;
+  if (!candidate) return null;
+
+  const db = await getDb();
+  if (!db) return null;
+  const [nodeState] = await db
+    .select()
+    .from(nodeStates)
+    .where(and(eq(nodeStates.profileId, profileId), eq(nodeStates.nodeKey, candidate.nodeKey)))
+    .limit(1);
+  const [regionState] = await db
+    .select()
+    .from(regionStates)
+    .where(and(eq(regionStates.profileId, profileId), eq(regionStates.regionKey, candidate.regionKey)))
+    .limit(1);
+
+  if (!regionState?.unlocked || !nodeState || nodeState.status === "locked") return null;
+  return { nodeKey: candidate.nodeKey, name: candidate.name };
+}
+
 export const battleRouter = router({
   /** 开始战斗 */
   start: protectedProcedure.input(z.object({ nodeKey: z.string().min(1).max(64), useAuto: z.boolean().optional() })).mutation(async ({ ctx, input }) => {
@@ -414,6 +437,7 @@ export const battleRouter = router({
       state: row.state,
       log: row.log ?? [],
       rewards: row.rewards ?? {},
+      nextNode: row.status === "won" ? await findNextBattleNode(profile.id, row.nodeKey) : null,
       stars: row.stars,
       turn: row.turn,
     };
@@ -475,6 +499,7 @@ async function persistBattle(
     .where(eq(battles.id, battleId));
 
   let settlement: Record<string, unknown> | null = null;
+  let nextNode: { nodeKey: string; name: string } | null = null;
 
   if (state.finished && state.result === "won" && node) {
     const [nodeStateRow] = await db
@@ -547,6 +572,7 @@ async function persistBattle(
       { type: "clear_node", nodeKey: node.nodeKey, regionKey: node.regionKey, firstClear: isFirstClear },
     ]);
     await syncUnlocks(profileId);
+    nextNode = await findNextBattleNode(profileId, node.nodeKey);
 
     const [regionRow] = await db
       .select()
@@ -587,6 +613,7 @@ async function persistBattle(
   return {
     finished: state.finished,
     settlement,
+    nextNode,
     reserveAvailable: Boolean((settlement as { reserveAvailable?: boolean } | null)?.reserveAvailable),
     reserveTeam: (settlement as { reserveTeam?: unknown } | null)?.reserveTeam ?? null,
   };

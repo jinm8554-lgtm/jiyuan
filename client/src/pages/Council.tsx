@@ -17,6 +17,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import { usePlayerName } from "@/hooks/usePlayerName";
+import { PageMusic } from "@/components/game/PageMusic";
 import { PageSection } from "@/components/game/GameShell";
 import { Avatar, EmptyState, ErrorState, GoldRule, Panel, RarityBadge, SectionTitle, SkeletonState, Tag } from "@/components/game/ui";
 
@@ -209,17 +210,23 @@ const [scene, setScene] = useState<SceneKey>("council");
 
   if (cast.isLoading) {
     return (
-      <PageSection title="议事厅">
-        <SkeletonState rows={4} />
-      </PageSection>
+      <>
+        <PageMusic src="/aetherfall-assets/council-theme.mp3" storageKey="aetherfall:council-music-muted" areaName="议事厅" />
+        <PageSection title="议事厅">
+          <SkeletonState rows={4} />
+        </PageSection>
+      </>
     );
   }
 
   if (cast.isError || !cast.data) {
     return (
-      <PageSection title="议事厅">
-        <ErrorState message={cast.error?.message ?? "读取失败"} onRetry={() => cast.refetch()} />
-      </PageSection>
+      <>
+        <PageMusic src="/aetherfall-assets/council-theme.mp3" storageKey="aetherfall:council-music-muted" areaName="议事厅" />
+        <PageSection title="议事厅">
+          <ErrorState message={cast.error?.message ?? "读取失败"} onRetry={() => cast.refetch()} />
+        </PageSection>
+      </>
     );
   }
 
@@ -259,7 +266,9 @@ const [scene, setScene] = useState<SceneKey>("council");
   };
 
   return (
-    <PageSection
+    <>
+      <PageMusic src="/aetherfall-assets/council-theme.mp3" storageKey="aetherfall:council-music-muted" areaName="议事厅" />
+      <PageSection
       title="议事厅 · 角色会谈"
       eyebrow={castData.aiConfigured.model ? `${castData.aiConfigured.name} · ${castData.aiConfigured.model}` : castData.aiConfigured.name}
       actions={
@@ -582,6 +591,7 @@ const [scene, setScene] = useState<SceneKey>("council");
           </Button>
         </DialogContent>
       </Dialog>
-    </PageSection>
+      </PageSection>
+    </>
   );
 }

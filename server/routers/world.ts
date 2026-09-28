@@ -6,12 +6,20 @@ import { getDb } from "../db";
 import { NODE_BY_KEY, NODE_SEEDS, NODE_TYPE_LABEL, REGION_SEEDS } from "../game/data/world";
 import { controlPercent, round } from "../game/formulas";
 import { advanceQuestProgress, recomputeRegionControl, syncUnlocks } from "../game/progress";
-import { addResources, getMembershipBenefits, loadRoster, loadTeams, nodeUnlockCheck, regionUnlockCheck } from "../game/service";
+import { addResources, getMembershipBenefits, getStoryFlags, loadRoster, loadTeams, nodeUnlockCheck, regionUnlockCheck, setStoryFlag } from "../game/service";
 import { protectedProcedure, router } from "../_core/trpc";
 import { resolveProfile } from "./_shared";
 
 type TradeSettlement = { gains: Record<string, number>; hours: number; processed: number; autoDispatched: boolean };
+type StoryChoice = { text?: string; flags?: Record<string, unknown>; rewards?: Record<string, number>; reply?: string };
 const AETHER_MICRO_SCALE = 1_000_000;
+
+function readSceneDecision(value: unknown): { chosen: number; at: number } | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as { chosen?: unknown; at?: unknown };
+  if (!Number.isInteger(record.chosen) || !Number.isFinite(record.at)) return null;
+  return { chosen: Number(record.chosen), at: Number(record.at) };
+}
 
 /** 市场 1/3/5 级分别开放 1/2/3 条贸易路线。 */
 function tradeSlotCapacity(marketLevel: number): number {
@@ -266,6 +274,10 @@ export const worldRouter = router({
 
     const roster = await loadRoster(profile.id);
     const teams = await loadTeams(profile.id);
+    const storyKey = row.storyKey ?? null;
+    const storyCompleted = storyKey
+      ? Boolean(readSceneDecision((await getStoryFlags(profile.id))[`scene_${storyKey}`]))
+      : false;
 
     return {
       nodeKey: row.nodeKey,
@@ -291,8 +303,9 @@ export const worldRouter = router({
       rewards: state?.firstClearedAt ? seed.rewards : seed.firstClearRewards,
       regularRewards: seed.rewards,
       tradeYield: seed.tradeYield,
-      storyKey: row.storyKey ?? null,
-      hasStoryScene: Boolean(row.storyKey),
+      storyKey,
+      hasStoryScene: Boolean(storyKey),
+      storyCompleted,
       teamSummary: {
         hasTeam: teams.some((team) => (team.memberIds ?? []).length > 0),
         topPower: roster.slice(0, 4).reduce((sum, entry) => sum + entry.power, 0),
@@ -304,19 +317,54 @@ export const worldRouter = router({
 
   /** 剧情场景读取（进入节点或手动触发） */
   scene: protectedProcedure.input(z.object({ sceneKey: z.string().min(1).max(64) })).query(async ({ ctx, input }) => {
-    await resolveProfile(ctx);
+    const profile = await resolveProfile(ctx);
     const db = await getDb();
     if (!db) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "数据库连接暂不可用" });
     const [row] = await db.select().from(storyScenes).where(eq(storyScenes.sceneKey, input.sceneKey)).limit(1);
     if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "剧情场景不存在" });
+    const choices = (row.choices ?? []) as StoryChoice[];
+    const decision = readSceneDecision((await getStoryFlags(profile.id))[`scene_${input.sceneKey}`]);
+    const chosenChoice = decision ? choices[decision.chosen] : null;
     return {
       sceneKey: row.sceneKey,
       chapter: row.chapter,
       title: row.title,
       beats: row.beats ?? [],
-      choices: row.choices ?? [],
+      choices,
+      decision: decision && chosenChoice
+        ? { choiceIndex: decision.chosen, choiceText: chosenChoice.text ?? `选项 ${decision.chosen + 1}`, reply: chosenChoice.reply ?? null, recordedAt: decision.at }
+        : null,
       unlockFlags: row.unlockFlags ?? [],
     };
+  }),
+
+  /** 已完成的节点剧情与最终抉择，供编年史查阅。 */
+  storyArchive: protectedProcedure.query(async ({ ctx }) => {
+    const profile = await resolveProfile(ctx);
+    const db = await getDb();
+    if (!db) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "数据库连接暂不可用" });
+    const [rows, flags] = await Promise.all([
+      db.select().from(storyScenes),
+      getStoryFlags(profile.id),
+    ]);
+
+    return rows.flatMap((row) => {
+      const decision = readSceneDecision(flags[`scene_${row.sceneKey}`]);
+      const choices = (row.choices ?? []) as StoryChoice[];
+      const chosenChoice = decision ? choices[decision.chosen] : null;
+      if (!decision || !chosenChoice) return [];
+      const trigger = (row.trigger ?? {}) as { nodeKey?: unknown };
+      return [{
+        sceneKey: row.sceneKey,
+        chapter: row.chapter,
+        title: row.title,
+        nodeKey: typeof trigger.nodeKey === "string" ? trigger.nodeKey : null,
+        choiceText: chosenChoice.text ?? `选项 ${decision.chosen + 1}`,
+        reply: chosenChoice.reply ?? null,
+        beats: row.beats ?? [],
+        recordedAt: decision.at,
+      }];
+    }).sort((a, b) => b.recordedAt - a.recordedAt);
   }),
 
   /** 剧情选项（写入剧情标记、发放奖励、推进任务） */
@@ -329,11 +377,15 @@ export const worldRouter = router({
 
       const [row] = await db.select().from(storyScenes).where(eq(storyScenes.sceneKey, input.sceneKey)).limit(1);
       if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "剧情场景不存在" });
-      const choices = (row.choices ?? []) as Array<{ text?: string; flags?: Record<string, unknown>; rewards?: Record<string, number>; reply?: string }>;
+      const choices = (row.choices ?? []) as StoryChoice[];
       const choice = choices[input.choiceIndex];
       if (!choice) throw new TRPCError({ code: "BAD_REQUEST", message: "选项无效" });
 
-      const { setStoryFlag } = await import("../game/service");
+      const decisionKey = `scene_${input.sceneKey}`;
+      if (readSceneDecision((await getStoryFlags(profile.id))[decisionKey])) {
+        throw new TRPCError({ code: "CONFLICT", message: "此段剧情已归档，不能再次作出选择" });
+      }
+
       const flags = choice.flags ?? {};
       for (const [key, value] of Object.entries(flags)) {
         await setStoryFlag(profile.id, key, value);
@@ -349,7 +401,8 @@ export const worldRouter = router({
           renown: rewards.renown ?? 0,
         });
       }
-      await setStoryFlag(profile.id, `scene_${input.sceneKey}`, { chosen: input.choiceIndex, at: Date.now() });
+      const recordedAt = Date.now();
+      await setStoryFlag(profile.id, decisionKey, { chosen: input.choiceIndex, at: recordedAt });
       for (const flag of row.unlockFlags ?? []) {
         await setStoryFlag(profile.id, flag, true);
       }
@@ -358,7 +411,7 @@ export const worldRouter = router({
         { type: "clear_node", nodeKey: input.nodeKey ?? "", regionKey: "", firstClear: false },
       ]);
 
-      return { ok: true, reply: choice.reply ?? null, flags, rewards, questUpdates: progress.updated };
+      return { ok: true, reply: choice.reply ?? null, flags, rewards, recordedAt, questUpdates: progress.updated };
     }),
 
   /** 一次战斗结算后的地图推进（由 battle 路由调用，此处暴露给前端刷新用） */
