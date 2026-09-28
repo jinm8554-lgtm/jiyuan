@@ -52,14 +52,16 @@ async function startServer() {
   }
 
   const preferredPort = parseInt(process.env.PORT || "3000");
+  // 生产环境通常由 Nginx/Caddy 反向代理；可用 HOST=127.0.0.1 阻止应用端口直接暴露到公网。
+  const host = process.env.HOST?.trim() || undefined;
   const port = await findAvailablePort(preferredPort);
 
   if (port !== preferredPort) {
     console.log(`Port ${preferredPort} is busy, using port ${port} instead`);
   }
 
-  server.listen(port, () => {
-    console.log(`Server running on http://localhost:${port}/`);
+  server.listen(port, host, () => {
+    console.log(`Server running on http://${host ?? "localhost"}:${port}/`);
   });
 }
 
