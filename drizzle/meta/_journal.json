@@ -113,6 +113,13 @@
       "when": 1790682000000,
       "tag": "0015_economy_rebalance",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "5",
+      "when": 1790726400000,
+      "tag": "0016_recruit_cost_adjustment",
+      "breakpoints": true
     }
   ]
 }

@@ -354,6 +354,7 @@ export default function Recruit() {
                 key={`${result.charKey}-${index}`}
                 className={cn(
                   "rise-in overflow-hidden rounded-sm border bg-[color:var(--ink-800)]/70",
+                  results.length === 1 && "mx-auto w-full max-w-[220px]",
                   result.rarity === "SSR" ? "rarity-SSR border-[#E0B84C]/90" : result.rarity === "SR" ? "rarity-SR border-[#A9B7C6]/70" : "rarity-R border-[#B08050]/60",
                   results.length > 1 && `stagger-${(index % 5) + 1}`,
                 )}
