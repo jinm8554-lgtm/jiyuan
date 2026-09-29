@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link } from "wouter";
-import { Archive, BadgeCheck, Crown, HandCoins, PackageOpen, ScrollText, ShoppingBag, Sparkles } from "lucide-react";
+import { Archive, BadgeCheck, Copy, Crown, HandCoins, PackageOpen, ScrollText, Send, ShoppingBag, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -31,6 +31,9 @@ const CATEGORY: Array<{ key: Category; label: string; eyebrow: string }> = [
   { key: "equipment", label: "商会器具", eyebrow: "Arms & Relics" },
 ];
 
+const QQ_GROUP_NUMBER = "1091159024";
+const QQ_GROUP_DEEP_LINK = `mqqapi://card/show_pslcard?src_type=internal&version=1&uin=${QQ_GROUP_NUMBER}&card_type=group&source=qrcode`;
+
 function formatDate(value: Date | string | null) {
   if (!value) return "未登记期限";
   return new Date(value).toLocaleDateString("zh-CN", { year: "numeric", month: "long", day: "numeric" });
@@ -60,6 +63,15 @@ export default function Shop() {
   const [selected, setSelected] = useState<Product | null>(null);
   const [showRecharge, setShowRecharge] = useState(false);
 
+  const copyGroupNumber = async () => {
+    try {
+      await navigator.clipboard.writeText(QQ_GROUP_NUMBER);
+      toast.success("QQ群号已复制", { description: "打开 QQ 后搜索群号即可申请加入。" });
+    } catch {
+      toast.error("复制失败", { description: `请手动记录 QQ 群：${QQ_GROUP_NUMBER}` });
+    }
+  };
+
   const invalidateShop = async () => {
     await Promise.all([
       utils.shop.catalog.invalidate(),
@@ -87,16 +99,16 @@ export default function Shop() {
   const products = useMemo(() => catalog.data?.products.filter((product) => product.category === category) ?? [], [catalog.data?.products, category]);
 
   if (catalog.isLoading) {
-    return <><PageMusic src="/aetherfall-assets/desolate-dusk.mp3" areaName="银杉商会" volume={0.2} /><PageSection title="银杉商会"><SkeletonState rows={6} /></PageSection></>;
+    return <><PageMusic src="/aetherfall-assets/silverpine-guild-theme.mp3" areaName="银杉商会" volume={0.2} /><PageSection title="银杉商会"><SkeletonState rows={6} /></PageSection></>;
   }
   if (catalog.isError || !catalog.data) {
-    return <><PageMusic src="/aetherfall-assets/desolate-dusk.mp3" areaName="银杉商会" volume={0.2} /><PageSection title="银杉商会"><ErrorState message={catalog.error?.message ?? "商会账册未能送达"} onRetry={() => catalog.refetch()} /></PageSection></>;
+    return <><PageMusic src="/aetherfall-assets/silverpine-guild-theme.mp3" areaName="银杉商会" volume={0.2} /><PageSection title="银杉商会"><ErrorState message={catalog.error?.message ?? "商会账册未能送达"} onRetry={() => catalog.refetch()} /></PageSection></>;
   }
 
   const { currency, membership, inventory, purchases } = catalog.data;
   return (
     <>
-      <PageMusic src="/aetherfall-assets/desolate-dusk.mp3" areaName="银杉商会" volume={0.2} />
+      <PageMusic src="/aetherfall-assets/silverpine-guild-theme.mp3" areaName="银杉商会" volume={0.2} />
       <PageSection
         title="银杉商会"
         eyebrow="The Silverpine Merchant Guild"
@@ -198,8 +210,32 @@ export default function Shop() {
       <Dialog open={showRecharge} onOpenChange={setShowRecharge}>
         <DialogContent className="border-[color:var(--gold-600)]/70 bg-[color:var(--ink-900)] text-[color:var(--parchment)] sm:max-w-md">
           <DialogHeader><DialogTitle className="text-display text-[color:var(--parchment)]">商会信使在等候</DialogTitle><DialogDescription className="text-[color:var(--parchment-muted)]">王冠金铢须由商会书记官验印入账。</DialogDescription></DialogHeader>
-          <div className="rounded-sm border border-[color:var(--gold-600)]/50 bg-[color:var(--ink-950)]/60 p-4"><p className="text-sm leading-7 text-[color:var(--parchment-dim)]">若要补充金铢，请加入灰隼堡商会联络群，向值守书记官报上领主名与所需补给。信使会在那里等候。</p><div className="mt-4 flex items-center gap-3 rounded-sm border border-[color:var(--gold-500)]/55 bg-[color:var(--ink-800)] p-3"><HandCoins size={19} className="text-[color:var(--gold-400)]" /><div><div className="text-caption">商会联络群</div><div className="text-numeric mt-1 text-xl tracking-wider text-[color:var(--parchment)]">1091159024</div></div></div></div>
-          <DialogFooter><Button className="btn-gold border-transparent text-[color:var(--ink-950)]" onClick={() => setShowRecharge(false)}>我已记下</Button></DialogFooter>
+          <div className="rounded-sm border border-[color:var(--gold-600)]/50 bg-[color:var(--ink-950)]/60 p-4">
+            <p className="text-sm leading-7 text-[color:var(--parchment-dim)]">若要补充金铢，请加入灰隼堡商会联络群，向值守书记官报上领主名与所需补给。信使会在那里等候。</p>
+            <div className="mt-4 flex items-center gap-3 rounded-sm border border-[color:var(--gold-500)]/55 bg-[color:var(--ink-800)] p-3">
+              <HandCoins size={19} className="text-[color:var(--gold-400)]" />
+              <div>
+                <div className="text-caption">商会联络群 · QQ 群</div>
+                <div className="text-numeric mt-1 text-xl tracking-wider text-[color:var(--parchment)]">{QQ_GROUP_NUMBER}</div>
+              </div>
+            </div>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              <a
+                href={QQ_GROUP_DEEP_LINK}
+                className="btn-gold flex h-9 items-center justify-center border-transparent text-sm text-[color:var(--ink-950)]"
+                aria-label={`在 QQ 中打开群 ${QQ_GROUP_NUMBER}`}
+              >
+                <Send size={14} className="mr-1.5" />
+                打开 QQ 群
+              </a>
+              <Button variant="outline" className="h-9 border-[color:var(--gold-600)]/60 text-[color:var(--gold-300)]" onClick={() => void copyGroupNumber()}>
+                <Copy size={14} className="mr-1.5" />
+                复制群号
+              </Button>
+            </div>
+            <p className="mt-2 text-[0.62rem] text-[color:var(--parchment-muted)]">若未自动唤起 QQ，请复制群号后在 QQ 内搜索加入。</p>
+          </div>
+          <DialogFooter><Button className="btn-gold border-transparent text-[color:var(--ink-950)]" onClick={() => setShowRecharge(false)}>关闭</Button></DialogFooter>
         </DialogContent>
       </Dialog>
 
