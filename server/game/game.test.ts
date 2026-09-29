@@ -172,10 +172,10 @@ const basePool: PoolConfig = {
 describe("招募：概率 / 保底 / 重复转化", () => {
   it("新版招募成本与新档案硬保底预算一致", () => {
     const costs = Object.fromEntries(POOL_SEEDS.map((pool) => [pool.poolKey, [pool.costSingle, pool.costTen]]));
-    expect(costs.pool_border_road).toEqual([10, 100]);
-    expect(costs.pool_old_standard).toEqual([30, 300]);
-    expect(costs.pool_song_of_forest).toEqual([20, 200]);
-    expect(60 * (costs.pool_old_standard?.[0] ?? 0)).toBe(1800);
+    expect(costs.pool_border_road).toEqual([100, 1000]);
+    expect(costs.pool_old_standard).toEqual([300, 3000]);
+    expect(costs.pool_song_of_forest).toEqual([200, 2000]);
+    expect(60 * (costs.pool_old_standard?.[0] ?? 0)).toBe(18000);
   });
 
   it("概率归一化后总和为 1，非法输入有兜底", () => {
@@ -456,8 +456,10 @@ describe("战斗引擎", () => {
     const state = startBattle([makeAlly(), makeEnemy()], { nodeKey: "t", regionKey: "r", seed: 4 });
     state.turn = 3;
     checkBattleEnd({ ...state, units: state.units.filter((unit) => unit.side === "ally") } as never, []);
-    const rewards = computeRewards({ gold: 100, exp: 50 }, { gold: 200, exp: 100, items: [{ equipKey: "eq_iron_sword", chance: 1 }] }, state, true);
+    const rewards = computeRewards({ gold: 100, exp: 50, food: 10, wood: 16, iron: 8 }, { gold: 200, exp: 100, food: 13, wood: 25, iron: 10, items: [{ equipKey: "eq_iron_sword", chance: 1 }] }, state, true);
     expect(rewards.gold).toBeGreaterThanOrEqual(100);
+    expect(rewards.wood).toBeGreaterThan(0);
+    expect(rewards.iron).toBeGreaterThan(0);
     expect(rewards.items.length).toBeGreaterThan(0);
   });
 
@@ -739,6 +741,10 @@ describe("策划配置与安全", () => {
       const unlock = node.unlock as { nodeKey?: string };
       if (unlock.nodeKey) expect(nodeKeys.has(unlock.nodeKey), `${node.nodeKey} 前置节点不存在`).toBe(true);
       expect(node.enemyWave.length).toBeGreaterThan(0);
+      const reward = node.rewards as Record<string, number>;
+      expect(reward.food).toBeGreaterThan(0);
+      expect(reward.wood).toBeGreaterThan(0);
+      expect(reward.iron).toBeGreaterThan(0);
     }
     for (const region of REGION_SEEDS) {
       const unlock = region.unlock as { nodeKey?: string };

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "wouter";
-import { Check, ChevronDown, ChevronUp, Gift, Inbox, MailOpen, PackageCheck } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, Gift, Inbox, MailOpen, PackageCheck, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { PageSection } from "@/components/game/GameShell";
@@ -24,11 +24,21 @@ export default function Mailbox() {
   });
   const claim = trpc.mail.claim.useMutation({
     onSuccess: async (result) => {
-      const detail = Object.entries(result.rewards).filter(([, value]) => Number(value) > 0).map(([key, value]) => `${resourceName(key)} +${value}`).join("、");
+      const resources = Object.entries(result.rewards).filter(([, value]) => Number(value) > 0).map(([key, value]) => `${resourceName(key)} +${value}`);
+      const attachments = result.attachments.map((attachment) => `${attachment.name} ×${attachment.quantity}`);
+      const detail = [...resources, ...attachments].join("、");
       toast.success("附件已收入领地库房", { description: detail || undefined });
-      await Promise.all([utils.mail.list.invalidate(), utils.mail.summary.invalidate(), utils.keep.home.invalidate(), utils.keep.resources.invalidate()]);
+      await Promise.all([utils.mail.list.invalidate(), utils.mail.summary.invalidate(), utils.keep.home.invalidate(), utils.keep.resources.invalidate(), utils.keep.vault.invalidate(), utils.shop.catalog.invalidate()]);
     },
     onError: (error) => toast.error("领取失败", { description: error.message }),
+  });
+  const deleteMail = trpc.mail.delete.useMutation({
+    onSuccess: async () => {
+      setExpandedId(null);
+      toast.success("信函已归入销毁册");
+      await Promise.all([utils.mail.list.invalidate(), utils.mail.summary.invalidate()]);
+    },
+    onError: (error) => toast.error("删除失败", { description: error.message }),
   });
 
   if (mail.isLoading) {
@@ -60,6 +70,8 @@ export default function Mailbox() {
             {mail.data.map((item) => {
               const expanded = expandedId === item.id;
               const rewards = Object.entries(item.rewards ?? {}).filter(([, value]) => Number(value) > 0);
+              const attachments = item.attachments ?? [];
+              const canDelete = !item.hasAttachments || Boolean(item.claimedAt);
               return (
                 <Panel key={item.id} gold={!item.readAt} className={cn("p-0 transition-colors", !item.readAt && "border-[color:var(--gold-600)]/65")}>
                   <button
@@ -74,7 +86,7 @@ export default function Mailbox() {
                       {item.readAt ? <MailOpen size={17} /> : <Inbox size={17} />}
                     </span>
                     <span className="min-w-0 flex-1">
-                      <span className="flex flex-wrap items-center gap-2"><span className="truncate text-sm font-medium text-[color:var(--parchment)]">{item.subject}</span>{!item.readAt ? <Tag tone="gold">新信</Tag> : null}{item.hasRewards ? <Tag tone="aether">附件</Tag> : null}</span>
+                      <span className="flex flex-wrap items-center gap-2"><span className="truncate text-sm font-medium text-[color:var(--parchment)]">{item.subject}</span>{!item.readAt ? <Tag tone="gold">新信</Tag> : null}{item.hasAttachments ? <Tag tone="aether">附件</Tag> : null}</span>
                       <span className="mt-1 block text-[0.66rem] text-[color:var(--parchment-muted)]">{formatDate(item.createdAt)}</span>
                     </span>
                     {expanded ? <ChevronUp size={16} className="text-[color:var(--parchment-muted)]" /> : <ChevronDown size={16} className="text-[color:var(--parchment-muted)]" />}
@@ -82,18 +94,24 @@ export default function Mailbox() {
                   {expanded ? (
                     <div className="border-t border-[color:var(--ink-500)]/45 p-3">
                       <p className="whitespace-pre-wrap text-sm leading-6 text-[color:var(--parchment-dim)]">{item.content}</p>
-                      {rewards.length > 0 ? (
+                      {item.hasAttachments ? (
                         <>
                           <GoldRule className="my-3" />
                           <div className="flex flex-wrap items-center gap-2">
                             <span className="inline-flex items-center gap-1 text-xs text-[color:var(--gold-300)]"><Gift size={13} />附件</span>
                             {rewards.map(([key, value]) => <Tag key={key} tone="aether">{resourceName(key)} +{Number(value).toLocaleString("zh-CN")}</Tag>)}
+                            {attachments.map((attachment) => <Tag key={`${attachment.kind}-${attachment.key}`} tone={attachment.kind === "equipment" ? "gold" : attachment.kind === "character" ? "aether" : "good"}>{attachment.kind === "equipment" ? "装备" : attachment.kind === "character" ? "角色" : "物品"} · {attachment.name} ×{attachment.quantity}</Tag>)}
                             <Button size="sm" className="btn-gold ml-auto border-transparent text-[color:var(--ink-950)]" disabled={Boolean(item.claimedAt) || claim.isPending} onClick={() => claim.mutate({ mailId: item.id })}>
                               {item.claimedAt ? <><Check size={13} className="mr-1" />已领取</> : <><PackageCheck size={13} className="mr-1" />领取附件</>}
                             </Button>
                           </div>
                         </>
                       ) : null}
+                      <div className={cn("mt-3 flex", item.hasAttachments ? "justify-end" : "justify-end")}>
+                        <Button size="sm" variant="outline" className="border-[color:var(--blood)]/60 text-[color:var(--blood)] hover:bg-[color:var(--blood)]/10" disabled={!canDelete || deleteMail.isPending} title={canDelete ? "删除这封信函" : "请先领取附件，再删除这封信函"} onClick={() => deleteMail.mutate({ mailId: item.id })}>
+                          <Trash2 size={13} className="mr-1" />删除
+                        </Button>
+                      </div>
                     </div>
                   ) : null}
                 </Panel>

@@ -177,10 +177,16 @@ export type NodeSeed = {
   sortOrder: number;
 };
 
-/** 战斗奖励以单抽成本的十分之一到一倍多为主，首通仍通过原始档位体现优势。 */
+/**
+ * 战斗是建设材料的稳定来源；数值随关卡金币档位自然成长，首通沿用更高的原始奖励档。
+ * 星辉仍刻意保持稀少，只作为招募与研究的长期目标。
+ */
 const rewards = (gold: number, exp: number, aether: number, renown: number, items: Array<{ equipKey: string; chance: number }> = []) => ({
   gold,
   exp,
+  food: Math.max(10, Math.round(gold / 16)),
+  wood: Math.max(16, Math.round(gold / 8)),
+  iron: Math.max(8, Math.round(gold / 20)),
   aether: Math.max(1, Math.round(aether / 10)),
   renown,
   items,

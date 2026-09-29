@@ -53,7 +53,9 @@ export default function World() {
 
   const toggleTrade = trpc.world.toggleTrade.useMutation({
     onSuccess: async (result) => {
-      toast.success(result.tradeActive ? "商队已派出，收益按小时累积（最多累计 8 小时）" : "商队已召回");
+      toast.success(result.tradeActive ? "商队已派出，收益按小时累积（最多累计 8 小时）" : "商队已召回", {
+        description: result.rationCost ? `已备下 ${result.rationCost} 粮食作为首轮补给。` : undefined,
+      });
       await Promise.all([utils.world.map.invalidate(), utils.world.region.invalidate()]);
     },
     onError: (error) => toast.error("操作失败", { description: error.message }),
@@ -62,7 +64,7 @@ export default function World() {
   const collectTrade = trpc.world.collectTrade.useMutation({
     onSuccess: async (result) => {
       if (result.hours <= 0) toast.info("暂时没有可收取的贸易收益");
-      else toast.success(`收取 ${result.hours} 小时贸易收益`, { description: `${Object.entries(result.gains).map(([key, value]) => `${resourceName(key)} +${value}`).join("、")}${result.autoDispatched ? " · 商队已自动续派" : " · 商队已返回"}` });
+      else toast.success(`收取 ${result.hours} 小时贸易收益`, { description: `${Object.entries(result.gains).map(([key, value]) => `${resourceName(key)} +${value}`).join("、")}${result.autoDispatched ? " · 新一轮商队已启程" : " · 商队已返回"}` });
       await Promise.all([utils.world.map.invalidate(), utils.keep.resources.invalidate()]);
     },
     onError: (error) => toast.error("收取失败", { description: error.message }),
@@ -312,7 +314,7 @@ export default function World() {
                     disabled={toggleTrade.isPending}
                   >
                     <Package size={13} className="mr-1" />
-                    {activeRegion.tradeActive ? "召回商队" : "派出商队"}
+                    {activeRegion.tradeActive ? "召回商队" : "派出商队 · 30 粮"}
                   </Button>
                 ) : null}
               />

@@ -2,7 +2,7 @@
  * 同伴页：角色图鉴 + 队伍编成
  * 卡片规则：稀有度边框、职业与元素标识、等级/战力/羁绊一览
  */
-import { useEffect, useMemo, useState } from "react";
+import { useLayoutEffect, useMemo, useState } from "react";
 import { Link } from "wouter";
 import { toast } from "sonner";
 import { Filter, Save, Users, X } from "lucide-react";
@@ -54,7 +54,9 @@ export default function Roster() {
   const teamSignature = activeTeam
     ? `${activeTeam.id}:${(activeTeam.memberIds ?? []).join(",")}:${JSON.stringify(activeTeam.formation ?? {})}`
     : "";
-  useEffect(() => {
+  // 在首帧绘制前同步队伍草稿。若延后到 useEffect，玩家刚进入页面就
+  // 点选同伴时，迟到的空队伍回填会覆盖这次选择。
+  useLayoutEffect(() => {
     if (!activeTeam) return;
     setDraftIds(activeTeam.memberIds ?? []);
     setDraftRows((activeTeam.formation ?? {}) as Record<number, "front" | "back">);

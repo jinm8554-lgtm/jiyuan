@@ -20,6 +20,7 @@ import { leadershipRouter } from "./routers/leadership";
 import { mailRouter } from "./routers/mail";
 import { metaRouter } from "./routers/meta";
 import { recruitRouter } from "./routers/recruit";
+import { shopRouter } from "./routers/shop";
 import { worldRouter } from "./routers/world";
 
 export const appRouter = router({
@@ -84,6 +85,7 @@ export const appRouter = router({
   mail: mailRouter,
   character: characterRouter,
   recruit: recruitRouter,
+  shop: shopRouter,
   world: worldRouter,
   battle: battleRouter,
   leadership: leadershipRouter,

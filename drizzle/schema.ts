@@ -368,6 +368,8 @@ export const gameProfiles = mysqlTable(
     aetherTradeMicros: int("aetherTradeMicros").default(0).notNull(),
     /** 招募重复角色转化的信物，与招募消耗的星辉分离计算 */
     recruitShards: int("recruitShards").default(0).notNull(),
+    /** 商会专用货币，只能由支付渠道或 GM 补发写入。 */
+    crownCoins: int("crownCoins").default(0).notNull(),
     renown: int("renown").default(20).notNull(),
 	    stamina: int("stamina").default(80).notNull(),
 	    staminaMax: int("staminaMax").default(80).notNull(),
@@ -415,6 +417,8 @@ export const profileMails = mysqlTable(
     content: text("content").notNull(),
     /** 可领取资源；空对象代表纯通知。 */
     rewards: json("rewards").$type<Record<string, number>>().notNull(),
+    /** 装备与可堆叠道具附件；领取时由服务端写入金库或商会库存。 */
+      attachments: json("attachments").$type<Array<{ kind: "equipment" | "item" | "character"; key: string; quantity: number }>>(),
     sentByUserId: int("sentByUserId"),
     readAt: timestamp("readAt"),
     claimedAt: timestamp("claimedAt"),
@@ -480,6 +484,38 @@ export const playerEquipments = mysqlTable(
 );
 
 export type PlayerEquipment = typeof playerEquipments.$inferSelect;
+
+/** 通用道具库存：补给、锻造材料等可堆叠物品。 */
+export const playerItems = mysqlTable(
+  "playerItems",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    profileId: int("profileId").notNull(),
+    itemKey: varchar("itemKey", { length: 64 }).notNull(),
+    quantity: int("quantity").default(0).notNull(),
+    source: varchar("source", { length: 32 }).default("shop").notNull(),
+    acquiredAt: timestamp("acquiredAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  (t) => [
+    uniqueIndex("uq_player_items_profile_key").on(t.profileId, t.itemKey),
+    index("idx_player_items_profile").on(t.profileId),
+  ],
+);
+
+/** 商会订单账本：每笔金铢消费与发放内容均可审计、不可重复结算。 */
+export const shopPurchases = mysqlTable(
+  "shopPurchases",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    profileId: int("profileId").notNull(),
+    productKey: varchar("productKey", { length: 64 }).notNull(),
+    crownCoinsSpent: int("crownCoinsSpent").notNull(),
+    granted: json("granted").$type<Record<string, unknown>>().notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  (t) => [index("idx_shop_purchases_profile_created").on(t.profileId, t.createdAt), index("idx_shop_purchases_product").on(t.profileId, t.productKey)],
+);
 
 export const teams = mysqlTable(
   "teams",

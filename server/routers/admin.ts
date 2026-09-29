@@ -20,6 +20,7 @@ import {
   nodeStates,
   playerCharacters,
   playerEquipments,
+  playerItems,
   profileMails,
   profileBuildings,
   profilePity,
@@ -31,6 +32,7 @@ import {
   regionStates,
   regions,
   skills,
+  shopPurchases,
   storyScenes,
   teams,
   users,
@@ -40,12 +42,13 @@ import { getDb } from "../db";
 import { decryptSecret, encryptSecret, fetchModels, maskApiKey, testAiConnection, type AiRuntimeConfig } from "../game/aiClient";
 import { createBackup, listBackups, restoreBackup, verifySnapshot } from "../game/backup";
 import { RARITY_LABEL } from "../game/formulas";
+import { SHOP_ITEMS } from "../game/data/shop";
 import { seedContent } from "../game/seed";
 import { storagePut } from "../storage";
 import { ENV } from "../_core/env";
 import { adminProcedure, router } from "../_core/trpc";
 import { requireAdmin } from "./_shared";
-import { adminMailInput } from "./mail";
+import { adminDeliveryInput, adminMailInput, normalizeMailAttachments, normalizeMailRewards, validateMailAttachments } from "./mail";
 
 const secretOf = () => process.env.JWT_SECRET ?? ENV.cookieSecret ?? "aetherfall-dev-secret";
 
@@ -1209,6 +1212,7 @@ export const adminRouter = router({
           wood: profile.wood,
           iron: profile.iron,
           aether: profile.aether,
+          crownCoins: profile.crownCoins,
           stamina: profile.stamina,
           staminaMax: profile.staminaMax,
         },
@@ -1244,16 +1248,68 @@ export const adminRouter = router({
     if (!db) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "数据库连接不可用" });
     const [profile] = await db.select({ id: gameProfiles.id }).from(gameProfiles).where(eq(gameProfiles.id, input.profileId)).limit(1);
     if (!profile) throw new TRPCError({ code: "NOT_FOUND", message: "档案不存在" });
-    const rewards = Object.fromEntries(Object.entries(input.rewards).filter(([, value]) => Number(value) > 0)) as Record<string, number>;
+    const rewards = normalizeMailRewards(input.rewards);
+    const attachments = normalizeMailAttachments(input.attachments);
+    await validateMailAttachments(db, attachments);
     const [inserted] = await db.insert(profileMails).values({
       profileId: profile.id,
       subject: input.subject,
       content: input.content,
       rewards,
+      attachments,
       sentByUserId: admin.id,
     }).$returningId();
-    await audit(ctx, "mail.send", "profile", String(profile.id), { subject: input.subject, rewards });
+    await audit(ctx, "mail.send", "profile", String(profile.id), { subject: input.subject, rewards, attachments });
     return { ok: true, mailId: inserted.id };
+  }),
+
+  /** 投递中心的可选领主、装备与通用物品清单。 */
+  deliveryCatalog: adminProcedure.query(async ({ ctx }) => {
+    requireAdmin(ctx);
+    const db = await getDb();
+    if (!db) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "数据库连接不可用" });
+    const [profiles, equipmentRows, characterRows] = await Promise.all([
+      db.select({ id: gameProfiles.id, lordName: gameProfiles.lordName, keepName: gameProfiles.keepName }).from(gameProfiles).orderBy(desc(gameProfiles.id)),
+      db.select({ equipKey: equipments.equipKey, name: equipments.name, rarity: equipments.rarity, slot: equipments.slot, requiredLevel: equipments.requiredLevel }).from(equipments).orderBy(equipments.equipKey),
+      db.select({ charKey: characters.charKey, name: characters.name, title: characters.title, rarity: characters.rarity, job: characters.job }).from(characters).orderBy(characters.sortOrder),
+    ]);
+    return {
+      profileCount: profiles.length,
+      profiles,
+      equipments: equipmentRows,
+      items: SHOP_ITEMS.map((item) => ({ itemKey: item.itemKey, name: item.name, description: item.description })),
+      characters: characterRows,
+    };
+  }),
+
+  /** 向一位领主或全体已建档领主投递同一份信函与附件。 */
+  deliverMail: adminProcedure.input(adminDeliveryInput).mutation(async ({ ctx, input }) => {
+    const admin = requireAdmin(ctx);
+    const db = await getDb();
+    if (!db) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "数据库连接不可用" });
+    const rewards = normalizeMailRewards(input.rewards);
+    const attachments = normalizeMailAttachments(input.attachments);
+    await validateMailAttachments(db, attachments);
+    const recipients = input.target === "all"
+      ? await db.select({ id: gameProfiles.id }).from(gameProfiles)
+      : await db.select({ id: gameProfiles.id }).from(gameProfiles).where(eq(gameProfiles.id, input.profileId!)).limit(1);
+    if (recipients.length === 0) throw new TRPCError({ code: "NOT_FOUND", message: input.target === "all" ? "当前没有可投递的领主档案" : "领主档案不存在" });
+
+    await db.insert(profileMails).values(recipients.map((recipient) => ({
+      profileId: recipient.id,
+      subject: input.subject,
+      content: input.content,
+      rewards,
+      attachments,
+      sentByUserId: admin.id,
+    })));
+    await audit(ctx, "mail.deliver", input.target === "all" ? "profiles" : "profile", input.target === "all" ? "all" : String(recipients[0].id), {
+      subject: input.subject,
+      rewards,
+      attachments,
+      recipientCount: recipients.length,
+    });
+    return { ok: true, recipientCount: recipients.length, target: input.target };
   }),
 
   /** GM 可修正某位会员已经拥有的角色成长数据；每次更改均写入审计日志。 */
@@ -1337,6 +1393,8 @@ export const adminRouter = router({
           await tx.delete(regionStates).where(inArray(regionStates.profileId, profileIds));
           await tx.delete(profileBuildings).where(inArray(profileBuildings.profileId, profileIds));
           await tx.delete(teams).where(inArray(teams.profileId, profileIds));
+          await tx.delete(shopPurchases).where(inArray(shopPurchases.profileId, profileIds));
+          await tx.delete(playerItems).where(inArray(playerItems.profileId, profileIds));
           await tx.delete(playerEquipments).where(inArray(playerEquipments.profileId, profileIds));
           await tx.delete(playerCharacters).where(inArray(playerCharacters.profileId, profileIds));
           await tx.delete(gameProfiles).where(inArray(gameProfiles.id, profileIds));
@@ -1459,6 +1517,7 @@ export const adminRouter = router({
         wood: z.number().int().min(-1000000).max(1000000).optional(),
         iron: z.number().int().min(-1000000).max(1000000).optional(),
         aether: z.number().int().min(-1000000).max(1000000).optional(),
+        crownCoins: z.number().int().min(-1000000).max(1000000).optional(),
         renown: z.number().int().min(-1000000).max(1000000).optional(),
         reason: z.string().max(200).optional(),
       }),
@@ -1475,6 +1534,7 @@ export const adminRouter = router({
         wood: Math.max(0, profile.wood + (input.wood ?? 0)),
         iron: Math.max(0, profile.iron + (input.iron ?? 0)),
         aether: Math.max(0, profile.aether + (input.aether ?? 0)),
+        crownCoins: Math.max(0, profile.crownCoins + (input.crownCoins ?? 0)),
         renown: Math.max(0, profile.renown + (input.renown ?? 0)),
       };
       await db.update(gameProfiles).set(next).where(eq(gameProfiles.id, profile.id));
@@ -1492,6 +1552,7 @@ export const adminRouter = router({
         wood: z.number().int().min(0).max(2_000_000_000).optional(),
         iron: z.number().int().min(0).max(2_000_000_000).optional(),
         aether: z.number().int().min(0).max(2_000_000_000).optional(),
+        crownCoins: z.number().int().min(0).max(2_000_000_000).optional(),
         renown: z.number().int().min(0).max(2_000_000_000).optional(),
         stamina: z.number().int().min(0).max(999).optional(),
         reason: z.string().trim().max(200).optional(),
@@ -1509,12 +1570,13 @@ export const adminRouter = router({
         wood: input.wood ?? profile.wood,
         iron: input.iron ?? profile.iron,
         aether: input.aether ?? profile.aether,
+        crownCoins: input.crownCoins ?? profile.crownCoins,
         renown: input.renown ?? profile.renown,
         stamina: Math.min(input.stamina ?? profile.stamina, profile.staminaMax),
       };
       await db.update(gameProfiles).set(next).where(eq(gameProfiles.id, profile.id));
       await audit(ctx, "resources.set", "profile", String(profile.id), {
-        before: { gold: profile.gold, food: profile.food, wood: profile.wood, iron: profile.iron, aether: profile.aether, renown: profile.renown, stamina: profile.stamina },
+        before: { gold: profile.gold, food: profile.food, wood: profile.wood, iron: profile.iron, aether: profile.aether, crownCoins: profile.crownCoins, renown: profile.renown, stamina: profile.stamina },
         after: next,
         reason: input.reason ?? null,
       });

@@ -38,12 +38,14 @@ const round = (v: number) => Math.round(v);
 function buildLevels(base: BuildingBase, maxLevel = 10) {
   const levels: Array<Record<string, unknown>> = [];
   for (let level = 1; level <= maxLevel; level += 1) {
-    const growthCost = Math.pow(1.52, level - 1);
+    // 木料在建造链里最早、最频繁地消耗；采用更平缓的成长，避免中期只剩刷木材。
+    const growthCost = Math.pow(1.44, level - 1);
+    const woodGrowthCost = Math.pow(1.34, level - 1);
     const growthTime = Math.pow(1.34, level - 1);
     const growthProduce = Math.pow(level, 1.28);
     const cost: Record<string, number> = {
       gold: round(base.cost.gold * growthCost),
-      wood: round(base.cost.wood * growthCost),
+      wood: round(base.cost.wood * woodGrowthCost),
       iron: round(base.cost.iron * growthCost),
     };
     if (base.cost.aether) cost.aether = round(base.cost.aether * growthCost);
@@ -108,7 +110,7 @@ const BASES: BuildingBase[] = [
     hotspotX: 58,
     hotspotY: 60,
     cost: { gold: 280, wood: 200, iron: 160 },
-    produce: { iron: 5, wood: -3 },
+    produce: { iron: 5, wood: -1 },
     hours: 0.3,
     unlocks: { 1: "开启装备强化", 3: "提高精良装备掉落率", 5: "解锁套装重铸" },
     effects: { 4: "战斗掉落额外获得 1 件装备（概率 20%）", 8: "装备掉落稀有度 +1 阶（概率 10%）" },

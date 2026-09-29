@@ -4,7 +4,7 @@
  */
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "wouter";
-import { AlertTriangle, ArrowLeft, BookOpen, Compass, Cpu, Database, Layers, Loader2, Menu, Package, ScrollText, ShieldCheck, Users, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, BookOpen, Compass, Cpu, Database, Layers, Loader2, Menu, Package, ScrollText, Send, ShieldCheck, Users, X } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { trpc } from "@/lib/trpc";
@@ -20,6 +20,7 @@ export const GM_NAV = [
   { path: "/gm/story", label: "任务与剧情", icon: ScrollText, hint: "任务 / 剧情 / 事件 / 建筑" },
   { path: "/gm/ai", label: "AI 配置", icon: Cpu, hint: "Base URL / 密钥 / 模型 / 测试 / 日志" },
   { path: "/gm/members", label: "会员与角色", icon: Users, hint: "账号 / 档案 / 角色 / 权限" },
+  { path: "/gm/delivery", label: "投递中心", icon: Send, hint: "全体或指定领主的信函与附件" },
   { path: "/gm/ops", label: "备份与运维", icon: Database, hint: "备份恢复 / 配置同步 / 审计" },
 ] as const;
 

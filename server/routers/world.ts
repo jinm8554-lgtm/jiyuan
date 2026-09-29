@@ -8,7 +8,7 @@ import { controlPercent, round } from "../game/formulas";
 import { normalizeLeaderSkillLevels } from "../game/leadership";
 import { advanceQuestProgress, recomputeRegionControl, syncUnlocks } from "../game/progress";
 import { completeTutorialAction } from "../game/tutorial";
-import { addResources, getMembershipBenefits, getStoryFlags, loadRoster, loadTeams, nodeUnlockCheck, regionUnlockCheck, setStoryFlag } from "../game/service";
+import { addResources, getMembershipBenefits, getStoryFlags, loadRoster, loadTeams, nodeUnlockCheck, regionUnlockCheck, setStoryFlag, spendResources } from "../game/service";
 import { protectedProcedure, router } from "../_core/trpc";
 import { resolveProfile } from "./_shared";
 
@@ -31,7 +31,7 @@ function tradeSlotCapacity(marketLevel: number): number {
   return 3;
 }
 
-/** 结算当前账号的商队；普通收取后商队返回，会员开启自动派遣则立即重新出发。 */
+/** 结算当前账号的商队；手动收取后即开始下一轮，会员离线到期时也会自动续派。 */
 async function settleTrade(profileId: number, forcedHours?: number, onlyExpired = false): Promise<TradeSettlement> {
   const db = await getDb();
   if (!db) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "数据库连接暂不可用" });
@@ -85,13 +85,14 @@ async function settleTrade(profileId: number, forcedHours?: number, onlyExpired 
     .where(eq(gameProfiles.id, profileId));
 
   if (Object.keys(gains).length > 0) await addResources(profileId, gains as never);
+  const continueDispatch = benefits.tradeAutoDispatch || !onlyExpired;
   for (const state of processedStates) {
     await db
       .update(regionStates)
-      .set({ tradeActive: benefits.tradeAutoDispatch, tradeStartedAt: benefits.tradeAutoDispatch ? new Date() : null })
+      .set({ tradeActive: continueDispatch, tradeStartedAt: continueDispatch ? new Date() : null })
       .where(eq(regionStates.id, state.id));
   }
-  return { gains, hours: round(hours * 10) / 10, processed: processedStates.length, autoDispatched: benefits.tradeAutoDispatch };
+  return { gains, hours: round(hours * 10) / 10, processed: processedStates.length, autoDispatched: continueDispatch };
 }
 
 export const worldRouter = router({
@@ -525,6 +526,11 @@ export const worldRouter = router({
     if (input.active && !alreadyActive && activeStates.length >= slots) {
       throw new TRPCError({ code: "BAD_REQUEST", message: `贸易位已满（${slots}/${slots}）；提升市场至 3、5 级可增加贸易位` });
     }
+    const rationCost = input.active && !alreadyActive ? 30 : 0;
+    if (rationCost > 0) {
+      const spent = await spendResources(profile.id, { food: rationCost });
+      if (!spent.ok) throw new TRPCError({ code: "BAD_REQUEST", message: `商队补给不足：派出商队需要 ${rationCost} 粮食` });
+    }
     await db
       .update(regionStates)
       .set({ tradeActive: input.active, tradeStartedAt: input.active ? new Date() : null })
@@ -532,6 +538,7 @@ export const worldRouter = router({
     return {
       ok: true,
       tradeActive: input.active,
+      rationCost,
       tradeSlots: slots,
       activeTradeSlots: input.active
         ? activeStates.length + (alreadyActive ? 0 : 1)

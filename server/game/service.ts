@@ -248,7 +248,7 @@ export async function getMembershipBenefits(profileId: number, now = new Date())
 
 export { FREE_DAILY_STAMINA_RESETS, MEMBER_DAILY_STAMINA_RESETS, MEMBER_DAILY_TRADE_RUSHES };
 
-/** 离线结算：建筑产出 × 时间（上限 12 小时）+ 体力恢复 + 升级完成 */
+/** 离线结算：建筑产出 × 时间（上限 24 小时）+ 体力恢复 + 升级完成 */
 export async function accrueProfile(profileId: number, now = new Date()): Promise<AccrualResult> {
   const db = await getDb();
   if (!db) throw new Error("数据库不可用");
@@ -292,7 +292,7 @@ export async function accrueProfile(profileId: number, now = new Date()): Promis
   const perHour = bundleFromEntries(entries);
 
   const elapsedMs = Math.max(0, now.getTime() - profile.lastTickAt.getTime());
-  const cappedMs = Math.min(elapsedMs, 12 * 3600 * 1000);
+  const cappedMs = Math.min(elapsedMs, 24 * 3600 * 1000);
   const hours = cappedMs / 3600 / 1000;
   const AETHER_MICRO_SCALE = 1_000_000;
   const accruedAetherMicros = Math.max(
@@ -323,7 +323,7 @@ export async function accrueProfile(profileId: number, now = new Date()): Promis
     staminaMax: staminaResult.staminaMax,
     staminaUpdatedAt: staminaResult.updatedAt,
     // 结算后推进时间戳，避免每次刷新都重复领取同一段离线产出。
-    // 超过 12 小时的部分仍按 cappedMs 结算，但也必须丢弃并从当前时刻重新计时。
+    // 超过 24 小时的部分仍按 cappedMs 结算，但也必须丢弃并从当前时刻重新计时。
     lastTickAt: new Date(now),
   };
 
@@ -377,7 +377,7 @@ export async function spendResources(
   return { ok: true as const, missing: [] as string[] };
 }
 
-export async function addResources(profileId: number, gain: Partial<ResourceBundle> & { renown?: number; stamina?: number; recruitShards?: number }) {
+export async function addResources(profileId: number, gain: Partial<ResourceBundle> & { crownCoins?: number; renown?: number; stamina?: number; recruitShards?: number }) {
   const db = await getDb();
   if (!db) throw new Error("数据库不可用");
   const [profile] = await db.select().from(gameProfiles).where(eq(gameProfiles.id, profileId)).limit(1);
@@ -391,6 +391,7 @@ export async function addResources(profileId: number, gain: Partial<ResourceBund
     wood: clamp(profile.wood + (gain.wood ?? 0), 0, cap),
     iron: clamp(profile.iron + (gain.iron ?? 0), 0, cap),
     aether: clamp(profile.aether + (gain.aether ?? 0), 0, cap),
+    crownCoins: clamp(profile.crownCoins + (gain.crownCoins ?? 0), 0, 2_000_000_000),
     renown: clamp(profile.renown + (gain.renown ?? 0), 0, 9_999_999),
     stamina: clamp(profile.stamina + (gain.stamina ?? 0), 0, profile.staminaMax),
     recruitShards: clamp(profile.recruitShards + (gain.recruitShards ?? 0), 0, 9_999_999),

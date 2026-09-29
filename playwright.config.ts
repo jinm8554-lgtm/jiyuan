@@ -15,7 +15,8 @@ process.env.no_proxy = noProxy;
 
 export default defineConfig({
   testDir: "./e2e",
-  timeout: 60_000,
+  // 新玩家冒烟流程包含命名仪式、教学施工和首战，完整走完需要超过一分钟。
+  timeout: 180_000,
   expect: { timeout: 15_000 },
   fullyParallel: false,
   // 用例会共同写入本地游戏数据库；串行执行避免并行建档时的登录请求互相阻塞。

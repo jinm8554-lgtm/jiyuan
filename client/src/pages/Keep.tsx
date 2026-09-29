@@ -6,7 +6,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "wouter";
 import { toast } from "sonner";
-import { ArrowRight, CheckCircle2, Coins, Hammer, Mail, RefreshCw, ScrollText, Swords, Timer, Users } from "lucide-react";
+import { ArrowRight, CheckCircle2, Coins, Hammer, HandCoins, Landmark, Mail, RefreshCw, ScrollText, Swords, Timer, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { trpc } from "@/lib/trpc";
@@ -59,10 +59,12 @@ export default function Keep() {
   const mailSummary = trpc.mail.summary.useQuery(undefined, { refetchInterval: 60_000 });
 
   const [selected, setSelected] = useState<BuildingView | null>(null);
+  const [tutorialWallQueued, setTutorialWallQueued] = useState(false);
   const [claimingQuest, setClaimingQuest] = useState<string | null>(null);
 
   const upgrade = trpc.keep.upgradeBuilding.useMutation({
     onSuccess: async (result) => {
+      if (result.buildingKey === "wall") setTutorialWallQueued(true);
       toast.success(`「${selected?.name ?? result.buildingKey}」已开始升级至 ${result.upgradingTo} 级`, {
         description: `预计 ${Math.max(1, Math.round(result.seconds / 60))} 分钟完成，可随时在议事厅结算。`,
       });
@@ -125,10 +127,12 @@ export default function Keep() {
   }, [onboarding.data]);
 
   useEffect(() => {
-    if (onboarding.data?.currentKey !== "build_wall" || selected || !data) return;
+    if (onboarding.data?.currentKey !== "build_wall" || selected || tutorialWallQueued || !data) return;
     const wall = (data.buildings as BuildingView[]).find((building) => building.buildingKey === "wall");
-    if (wall) setSelected(wall);
-  }, [data, onboarding.data?.currentKey, selected]);
+    // 只在尚未开工时自动展示南墙详情。开工后若仍反复打开弹窗，
+    // 会遮住页面上的“结算施工”操作，令新手流程无法继续。
+    if (wall && wall.level < 1 && !wall.upgradingTo) setSelected(wall);
+  }, [data, onboarding.data?.currentKey, selected, tutorialWallQueued]);
 
   if (home.isLoading) {
     return (
@@ -344,12 +348,24 @@ export default function Keep() {
               eyebrow="Lord's Study"
               title="领主书房"
               action={
-                <Link href="/mailbox" className="relative">
-                  <Button size="sm" variant="outline" className="border-[color:var(--gold-600)]/60 text-[color:var(--gold-300)]">
-                    <Mail size={13} className="mr-1" />邮箱
-                  </Button>
-                  {(mailSummary.data?.unreadCount ?? 0) > 0 ? <span className="absolute -right-2 -top-2 grid h-4 min-w-4 place-items-center rounded-full bg-[color:var(--ember-500)] px-1 text-[0.56rem] font-bold text-white">{mailSummary.data!.unreadCount > 9 ? "9+" : mailSummary.data!.unreadCount}</span> : null}
-                </Link>
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  <Link href="/shop">
+                    <Button size="sm" variant="outline" className="border-[color:var(--gold-600)]/60 text-[color:var(--gold-300)]">
+                      <HandCoins size={13} className="mr-1" />银杉商会
+                    </Button>
+                  </Link>
+                  <Link href="/vault">
+                    <Button size="sm" variant="outline" className="border-[color:var(--gold-600)]/60 text-[color:var(--gold-300)]">
+                      <Landmark size={13} className="mr-1" />城堡金库
+                    </Button>
+                  </Link>
+                  <Link href="/mailbox" className="relative">
+                    <Button size="sm" variant="outline" className="border-[color:var(--gold-600)]/60 text-[color:var(--gold-300)]">
+                      <Mail size={13} className="mr-1" />邮箱
+                    </Button>
+                    {(mailSummary.data?.unreadCount ?? 0) > 0 ? <span className="absolute -right-2 -top-2 grid h-4 min-w-4 place-items-center rounded-full bg-[color:var(--ember-500)] px-1 text-[0.56rem] font-bold text-white">{mailSummary.data!.unreadCount > 9 ? "9+" : mailSummary.data!.unreadCount}</span> : null}
+                  </Link>
+                </div>
               }
             />
             <GoldRule />
@@ -563,7 +579,10 @@ export default function Keep() {
                     </div>
                     {selected.nextSeconds ? (
                       <p className="text-xs text-[color:var(--parchment-dim)]">
-                        施工时长：约 {Math.max(1, Math.round(selected.nextSeconds / 60))} 分钟（教学中的南墙施工只需几秒）
+                        施工时长：约 {Math.max(1, Math.round(selected.nextSeconds / 60))} 分钟
+                        {onboarding.data?.currentKey === "build_wall" && selected.buildingKey === "wall"
+                          ? "（教学中的南墙施工只需几秒）"
+                          : ""}
                       </p>
                     ) : null}
                     {selected.nextUnlock ? <p className="text-xs text-[color:var(--gold-300)]">解锁：{selected.nextUnlock}</p> : null}

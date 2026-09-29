@@ -16,6 +16,8 @@ import Recruit from "./pages/Recruit";
 import Council from "./pages/Council";
 import Chronicle from "./pages/Chronicle";
 import Mailbox from "./pages/Mailbox";
+import Vault from "./pages/Vault";
+import Shop from "./pages/Shop";
 import GMOverview from "./pages/gm/GMOverview";
 import GMCharacters from "./pages/gm/GMCharacters";
 import GMPools from "./pages/gm/GMPools";
@@ -24,6 +26,7 @@ import GMContent from "./pages/gm/GMContent";
 import GMStory from "./pages/gm/GMStory";
 import GMAi from "./pages/gm/GMAi";
 import GMMembers from "./pages/gm/GMMembers";
+import GMDelivery from "./pages/gm/GMDelivery";
 import GMOps from "./pages/gm/GMOps";
 
 /** 游戏内页面统一包裹 GameShell（顶部资源条 + 导航 + 移动端底部栏） */
@@ -89,6 +92,16 @@ function Router() {
           <Mailbox />
         </GameRoute>
       </Route>
+      <Route path={"/vault"}>
+        <GameRoute>
+          <Vault />
+        </GameRoute>
+      </Route>
+      <Route path={"/shop"}>
+        <GameRoute>
+          <Shop />
+        </GameRoute>
+      </Route>
 
       {/* GM 管理后台（页面内自行校验管理员身份） */}
       <Route path={"/gm"} component={GMOverview} />
@@ -99,6 +112,7 @@ function Router() {
       <Route path={"/gm/story"} component={GMStory} />
       <Route path={"/gm/ai"} component={GMAi} />
       <Route path={"/gm/members"} component={GMMembers} />
+      <Route path={"/gm/delivery"} component={GMDelivery} />
       <Route path={"/gm/ops"} component={GMOps} />
 
       <Route path={"/404"} component={NotFound} />

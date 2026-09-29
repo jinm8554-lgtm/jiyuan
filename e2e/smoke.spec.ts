@@ -133,6 +133,28 @@ test("新玩家可以完成登录、建档、首战和招募", async ({ page }) 
     await expect(page.getByRole("heading", { name: "招募结果" })).toBeVisible();
   });
 
+  await test.step("查看领主书房中的城堡金库", async () => {
+    await page.goto("/vault");
+    await expect(page).toHaveURL(/\/vault$/);
+    await expect(page.getByRole("heading", { name: "城堡金库" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "锻造与契约素材" })).toBeVisible();
+    await expect(page.getByText("银杉木料")).toBeVisible();
+    await expect(page.getByText("铁制长剑")).toBeVisible();
+  });
+
+  await test.step("查阅银杉商会并取得金铢联络方式", async () => {
+    await page.goto("/shop");
+    await expect(page).toHaveURL(/\/shop$/);
+    await expect(page.getByRole("heading", { name: "银杉商会" })).toBeVisible();
+    await expect(page.getByText("守望者契约 · 三十日")).toBeVisible();
+    await page.getByRole("button", { name: "补充金铢" }).click();
+    const messenger = page.getByRole("dialog", { name: "商会信使在等候" });
+    await expect(messenger).toBeVisible();
+    await expect(messenger.getByText("1091159024", { exact: true })).toBeVisible();
+    await messenger.getByRole("button", { name: "我已记下" }).click();
+    await expect(messenger).toBeHidden();
+  });
+
   await test.step("阅览皇家图书馆馆藏", async () => {
     await page.goto("/chronicle");
     await expect(page).toHaveURL(/\/chronicle$/);

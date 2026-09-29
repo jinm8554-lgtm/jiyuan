@@ -1,9 +1,10 @@
 import { TRPCError } from "@trpc/server";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
-import { domainEvents, gameProfiles, playerCharacters, profileBuildings, profileQuests, quests } from "../../drizzle/schema";
+import { domainEvents, gameProfiles, playerCharacters, playerEquipments, profileBuildings, profileQuests, quests } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { BUILDING_SEEDS } from "../game/data/buildings";
+import { EQUIP_BY_KEY, SLOT_LABEL } from "../game/data/equipments";
 import { EVENT_SEEDS } from "../game/data/quests";
 import { NODE_SEEDS, REGION_SEEDS } from "../game/data/world";
 import { buildingUpgradeCost, resourceCap, round } from "../game/formulas";
@@ -617,6 +618,71 @@ export const keepRouter = router({
       memberIds: team.memberIds ?? [],
       formation: team.formation ?? {},
     }));
+  }),
+
+  /** 城堡金库：装备实物与可用于锻造、招募的已持有素材。 */
+  vault: protectedProcedure.query(async ({ ctx }) => {
+    const profile = await resolveProfile(ctx);
+    const accrual = await accrueProfile(profile.id);
+    const db = await getDb();
+    if (!db) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "数据库连接暂不可用" });
+
+    const [equipmentRows, roster] = await Promise.all([
+      db.select().from(playerEquipments).where(eq(playerEquipments.profileId, profile.id)),
+      loadRoster(profile.id),
+    ]);
+    const ownerById = new Map(roster.map((entry) => [entry.playerCharId, { name: entry.config.name, charKey: entry.charKey }]));
+    const sourceName: Record<string, string> = {
+      starter: "领地遗存",
+      battle: "远征战利品",
+      first_clear: "首通战利品",
+      quest: "任务奖赏",
+      exchange: "信物兑换",
+    };
+
+    const equipment = equipmentRows
+      .map((row) => {
+        const config = EQUIP_BY_KEY.get(row.equipKey);
+        if (!config) return null;
+        const owner = row.equippedBy ? ownerById.get(row.equippedBy) : undefined;
+        return {
+          playerEquipId: row.id,
+          equipKey: row.equipKey,
+          name: config.name,
+          rarity: config.rarity,
+          slot: config.slot,
+          slotName: SLOT_LABEL[config.slot],
+          iconKey: config.iconKey,
+          description: config.description,
+          stats: config.stats,
+          level: row.level,
+          maxLevel: config.maxLevel,
+          quantity: row.quantity,
+          source: row.source,
+          sourceName: sourceName[row.source] ?? "来源不明",
+          acquiredAt: row.acquiredAt,
+          equipped: Boolean(owner),
+          ownerName: owner?.name ?? null,
+          ownerCharKey: owner?.charKey ?? null,
+        };
+      })
+      .filter((item): item is NonNullable<typeof item> => Boolean(item))
+      .sort((left, right) => Number(right.equipped) - Number(left.equipped) || right.level - left.level || right.acquiredAt.getTime() - left.acquiredAt.getTime());
+
+    const current = accrual.profile;
+    return {
+      equipment,
+      summary: {
+        totalEquipment: equipment.reduce((sum, item) => sum + item.quantity, 0),
+        equippedEquipment: equipment.filter((item) => item.equipped).reduce((sum, item) => sum + item.quantity, 0),
+      },
+      materials: [
+        { key: "wood", name: "银杉木料", description: "修缮城墙与锻造器具的基础木料。", quantity: current.wood, tone: "verdant" },
+        { key: "iron", name: "边境铁矿", description: "强化武器与护甲所需的冶炼原料。", quantity: current.iron, tone: "gold" },
+        { key: "aether", name: "星辉结晶", description: "用于招募、研究与高阶工造的结晶化星辉。", quantity: current.aether, tone: "aether" },
+        { key: "recruitShards", name: "星辉信物", description: "重复招募所得，可在招募处兑换装备。", quantity: current.recruitShards, tone: "aether" },
+      ],
+    };
   }),
 
   /** 资源明细（供顶部资源条展开面板） */

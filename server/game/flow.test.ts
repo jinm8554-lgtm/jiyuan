@@ -13,7 +13,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { appRouter } from "../routers";
 import { getDb } from "../db";
 import type { TrpcContext } from "../_core/context";
-import { battles, characters, gameProfiles, nodeStates, playerCharacters, playerEquipments, profileBuildings, profileMails, regionStates, teams, users } from "../../drizzle/schema";
+import { battles, characters, gameProfiles, nodeStates, playerCharacters, playerEquipments, playerItems, profileBuildings, profileMails, regionStates, shopPurchases, teams, users } from "../../drizzle/schema";
 import { accrueProfile } from "../game/service";
 import { TUTORIAL_STEPS } from "../game/tutorial";
 
@@ -47,6 +47,9 @@ flowDescribe("核心流程：从建档到征服", () => {
     const profiles = await db.select({ id: gameProfiles.id }).from(gameProfiles).where(inArray(gameProfiles.userId, userIds));
     const ids = profiles.map((row) => row.id);
     if (ids.length > 0) {
+      await db.delete(shopPurchases).where(inArray(shopPurchases.profileId, ids));
+      await db.delete(playerItems).where(inArray(playerItems.profileId, ids));
+      await db.delete(playerEquipments).where(inArray(playerEquipments.profileId, ids));
       await db.delete(profileMails).where(inArray(profileMails.profileId, ids));
       await db.delete(playerCharacters).where(inArray(playerCharacters.profileId, ids));
       await db.delete(profileBuildings).where(inArray(profileBuildings.profileId, ids));
@@ -284,11 +287,11 @@ flowDescribe("核心流程：从建档到征服", () => {
       .set({ controlPercent: 30 })
       .where(and(eq(regionStates.profileId, profileId), inArray(regionStates.regionKey, ["silverpine", "tidevale"])));
 
-    await expect(player.world.toggleTrade({ regionKey: "silverpine", active: true })).resolves.toMatchObject({ tradeSlots: 1, activeTradeSlots: 1 });
+    await expect(player.world.toggleTrade({ regionKey: "silverpine", active: true })).resolves.toMatchObject({ tradeSlots: 1, activeTradeSlots: 1, rationCost: 30 });
     await expect(player.world.toggleTrade({ regionKey: "tidevale", active: true })).rejects.toMatchObject({ code: "BAD_REQUEST" });
 
     await db.update(profileBuildings).set({ level: 3 }).where(and(eq(profileBuildings.profileId, profileId), eq(profileBuildings.buildingKey, "market")));
-    await expect(player.world.toggleTrade({ regionKey: "tidevale", active: true })).resolves.toMatchObject({ tradeSlots: 2, activeTradeSlots: 2 });
+    await expect(player.world.toggleTrade({ regionKey: "tidevale", active: true })).resolves.toMatchObject({ tradeSlots: 2, activeTradeSlots: 2, rationCost: 30 });
     const map = await player.world.map();
     expect(map.summary).toMatchObject({ tradeSlots: 2, activeTradeSlots: 2 });
 
@@ -540,28 +543,57 @@ flowDescribe("核心流程：从建档到征服", () => {
     }
   }, 90_000);
 
-  it("7bb. 邮箱信函可提示未读、阅读并且仅领取一次附带资源", async () => {
-    const sent = await admin.admin.sendMail({
+  it("7bb. 投递中心可向指定领主发送资源、金铢、角色、装备和物品，邮箱只领取一次", async () => {
+    const ownedCharacterKeys = new Set((await db.select({ charKey: playerCharacters.charKey }).from(playerCharacters).where(eq(playerCharacters.profileId, profileId))).map((row) => row.charKey));
+    const mailCharacter = (await db.select({ charKey: characters.charKey, name: characters.name }).from(characters).where(eq(characters.status, "published"))).find((character) => !ownedCharacterKeys.has(character.charKey));
+    if (!mailCharacter) throw new Error("流程测试缺少可通过邮件投递的角色");
+    const sent = await admin.admin.deliverMail({
+      target: "profile",
       profileId,
       subject: "测试补给已抵达",
       content: "请由领主亲自验收这批边境补给。",
-      rewards: { renown: 7, aether: 3 },
+      rewards: { renown: 7, aether: 3, crownCoins: 17 },
+      attachments: [
+        { kind: "item", key: "item_march_ration", quantity: 2 },
+        { kind: "equipment", key: "eq_wax_seal_charm", quantity: 1 },
+        { kind: "character", key: mailCharacter.charKey, quantity: 1 },
+      ],
     });
-    expect(sent.mailId).toBeGreaterThan(0);
+    expect(sent).toMatchObject({ ok: true, target: "profile", recipientCount: 1 });
     expect((await player.mail.summary()).unreadCount).toBe(1);
 
     const inbox = await player.mail.list();
-    const letter = inbox.find((item) => item.id === sent.mailId)!;
+    const letter = inbox.find((item) => item.subject === "测试补给已抵达")!;
     expect(letter.readAt).toBeNull();
-    expect(letter.hasRewards).toBe(true);
+    expect(letter.hasAttachments).toBe(true);
+    expect(letter.attachments).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "item", key: "item_march_ration", quantity: 2, name: "行军补给券" }),
+      expect.objectContaining({ kind: "equipment", key: "eq_wax_seal_charm", quantity: 1 }),
+      expect.objectContaining({ kind: "character", key: mailCharacter.charKey, quantity: 1, name: mailCharacter.name }),
+    ]));
 
-    await player.mail.read({ mailId: sent.mailId });
+    await player.mail.read({ mailId: letter.id });
     expect((await player.mail.summary()).unreadCount).toBe(0);
     const before = await player.keep.home();
-    await player.mail.claim({ mailId: sent.mailId });
+    const [profileBefore] = await db.select({ crownCoins: gameProfiles.crownCoins }).from(gameProfiles).where(eq(gameProfiles.id, profileId)).limit(1);
+    const itemsBefore = await db.select().from(playerItems).where(and(eq(playerItems.profileId, profileId), eq(playerItems.itemKey, "item_march_ration")));
+    const equipmentBefore = await db.select().from(playerEquipments).where(and(eq(playerEquipments.profileId, profileId), eq(playerEquipments.equipKey, "eq_wax_seal_charm")));
+    const characterBefore = await db.select().from(playerCharacters).where(and(eq(playerCharacters.profileId, profileId), eq(playerCharacters.charKey, mailCharacter.charKey)));
+    const claimed = await player.mail.claim({ mailId: letter.id });
     const after = await player.keep.home();
     expect(after.resources.renown).toBe(before.resources.renown + 7);
-    await expect(player.mail.claim({ mailId: sent.mailId })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(claimed.attachments).toHaveLength(3);
+    const [profileAfter] = await db.select({ crownCoins: gameProfiles.crownCoins }).from(gameProfiles).where(eq(gameProfiles.id, profileId)).limit(1);
+    const itemsAfter = await db.select().from(playerItems).where(and(eq(playerItems.profileId, profileId), eq(playerItems.itemKey, "item_march_ration")));
+    const equipmentAfter = await db.select().from(playerEquipments).where(and(eq(playerEquipments.profileId, profileId), eq(playerEquipments.equipKey, "eq_wax_seal_charm")));
+    const characterAfter = await db.select().from(playerCharacters).where(and(eq(playerCharacters.profileId, profileId), eq(playerCharacters.charKey, mailCharacter.charKey)));
+    expect(profileAfter.crownCoins).toBe(profileBefore.crownCoins + 17);
+    expect(itemsAfter.reduce((total, item) => total + item.quantity, 0)).toBe(itemsBefore.reduce((total, item) => total + item.quantity, 0) + 2);
+    expect(equipmentAfter).toHaveLength(equipmentBefore.length + 1);
+    expect(characterAfter).toHaveLength(characterBefore.length + 1);
+    await expect(player.mail.claim({ mailId: letter.id })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(player.mail.delete({ mailId: letter.id })).resolves.toMatchObject({ ok: true });
+    expect((await player.mail.list()).some((mail) => mail.id === letter.id)).toBe(false);
   }, 60_000);
 
   it("7c. 预备部队：兵营 2 级解锁第二队，首队战败后可接续残血敌人且只能使用一次", async () => {
@@ -887,5 +919,30 @@ flowDescribe("核心流程：从建档到征服", () => {
     expect(actions.has("member.character.update")).toBe(true);
     // 审计日志必须记录操作者，便于追责
     expect(logs.every((log) => log.adminUserId > 0)).toBe(true);
+  }, 60_000);
+
+  it("16. 银杉商会：GM 补发金铢后由服务端扣款、入库、使用补给并保留限购账目", async () => {
+    await admin.admin.setResources({ profileId, crownCoins: 200, reason: "商会流程测试" });
+    const catalog = await player.shop.catalog();
+    expect(catalog.currency).toMatchObject({ key: "crownCoins", balance: 200 });
+    const rationsBeforePurchase = catalog.inventory.find((item) => item.itemKey === "item_march_ration")?.quantity ?? 0;
+
+    const rations = await player.shop.purchase({ productKey: "shop_march_rations" });
+    expect(rations).toMatchObject({ ok: true, balance: 188 });
+    const stock = await player.shop.catalog();
+    expect(stock.inventory.find((item) => item.itemKey === "item_march_ration")?.quantity).toBe(rationsBeforePurchase + 5);
+    expect(stock.purchases[0]).toMatchObject({ productKey: "shop_march_rations", crownCoinsSpent: 12 });
+
+    await db.update(gameProfiles).set({ stamina: 0, staminaUpdatedAt: new Date() }).where(eq(gameProfiles.id, profileId));
+    const used = await player.shop.useItem({ itemKey: "item_march_ration" });
+    expect(used).toMatchObject({ ok: true, restored: 12, stamina: 12 });
+    const afterUse = await player.shop.catalog();
+    expect(afterUse.inventory.find((item) => item.itemKey === "item_march_ration")?.quantity).toBe(rationsBeforePurchase + 4);
+
+    const equipment = await player.shop.purchase({ productKey: "shop_iron_oath_hammer" });
+    expect(equipment.ok).toBe(true);
+    const [hammer] = await db.select().from(playerEquipments).where(and(eq(playerEquipments.profileId, profileId), eq(playerEquipments.equipKey, "eq_ironoath_hammer"))).limit(1);
+    expect(hammer?.source).toBe("shop");
+    await expect(player.shop.purchase({ productKey: "shop_iron_oath_hammer" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
   }, 60_000);
 });
