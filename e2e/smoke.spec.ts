@@ -42,8 +42,16 @@ test("新玩家可以完成登录、建档、首战和招募", async ({ page }) 
   });
 
   await test.step("完成首个建筑与远征队编成", async () => {
-    await expect(page.getByText("先看看灰隼堡", { exact: true })).toBeVisible();
-    await expect(page.locator("#tutorial-building-area")).toHaveClass(/tutorial-spotlight/);
+    await expect(page.getByText("点击这里查看南墙", { exact: true })).toBeVisible();
+    await expect(page.locator("#keep-building-wall")).toHaveClass(/tutorial-spotlight/);
+    await expect(page.getByRole("button", { name: "定位操作" })).toHaveCount(0);
+    const targetBox = await page.locator("#keep-building-wall").boundingBox();
+    const guideBox = await page.getByTestId("tutorial-coachmark").boundingBox();
+    expect(targetBox).not.toBeNull();
+    expect(guideBox).not.toBeNull();
+    const horizontalGap = Math.max(targetBox!.x - (guideBox!.x + guideBox!.width), guideBox!.x - (targetBox!.x + targetBox!.width), 0);
+    const verticalGap = Math.max(targetBox!.y - (guideBox!.y + guideBox!.height), guideBox!.y - (targetBox!.y + targetBox!.height), 0);
+    expect(Math.hypot(horizontalGap, verticalGap)).toBeLessThan(32);
     await page.locator("#keep-building-wall").click();
     await expect(page.getByRole("heading", { name: "城墙" })).toBeVisible();
     await expect(page.locator("#tutorial-wall-upgrade")).toHaveClass(/tutorial-spotlight/);
@@ -150,7 +158,7 @@ test("新玩家可以完成登录、建档、首战和招募", async ({ page }) 
   await test.step("查阅银杉商会并取得金铢联络方式", async () => {
     await page.goto("/shop");
     await expect(page).toHaveURL(/\/shop$/);
-    await expect(page.getByRole("heading", { name: "银杉商会" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "银杉商会", exact: true })).toBeVisible();
     await expect(page.getByText("守望者契约 · 三十日")).toBeVisible();
     await page.getByRole("button", { name: "补充金铢" }).click();
     const messenger = page.getByRole("dialog", { name: "商会信使在等候" });

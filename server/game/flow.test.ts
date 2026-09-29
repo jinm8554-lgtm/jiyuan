@@ -723,6 +723,9 @@ flowDescribe("核心流程：从建档到征服", () => {
     expect((await player.ai.cast()).councilQuota.used).toBe(quotaBefore);
     const localHistory = await player.ai.conversation({ conversationId: tutorialSession.conversationId });
     expect(localHistory.messages.some((message) => message.source === "fallback")).toBe(true);
+    const completedTutorial = await player.meta.onboarding();
+    expect(completedTutorial.currentKey).toBe("tutorial_complete");
+    expect(completedTutorial.nextStep).toBeNull();
 
     const session = await player.ai.openConversation({ scene: "campfire", presentKeys: selected });
     const talk = await player.ai.talk({ conversationId: session.conversationId, message: "聊聊各自的过去吧。" });

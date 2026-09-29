@@ -216,9 +216,9 @@ export default function Keep() {
       <div className="grid gap-4 lg:grid-cols-[1.35fr_1fr]">
         {/* 左：领地视图 */}
         <div className="space-y-4">
-          {onboarding.data?.currentKey === "inspect_keep" ? <TutorialSpotlight targetId="tutorial-building-area" title="先看看灰隼堡" description="点击任意建筑，查看它的等级、效果与升级成本。" /> : null}
-          {onboarding.data?.currentKey === "build_wall" ? <TutorialSpotlight targetId="tutorial-wall-upgrade" title="开始修复南墙" description="已为你打开南墙详情。点击高亮的“开始施工”；教学施工只需几秒。" /> : null}
-          {onboarding.data?.currentKey === "finish_wall" ? <TutorialSpotlight targetId="tutorial-settle-construction" title="结算南墙施工" description="施工完成后点击结算，让防御加成正式生效。" /> : null}
+          {onboarding.data?.currentKey === "inspect_keep" ? <TutorialSpotlight targetId="keep-building-wall" title="点击这里查看南墙" description="先查看建筑详情、等级和升级成本。" /> : null}
+          {onboarding.data?.currentKey === "build_wall" ? <TutorialSpotlight targetId="tutorial-wall-upgrade" title="点击这里开始施工" description="修复南墙只需几秒，施工完成后还需要结算。" /> : null}
+          {onboarding.data?.currentKey === "finish_wall" ? <TutorialSpotlight targetId="tutorial-settle-construction" title="点击这里结算施工" description="结算后，南墙的防御加成才会正式生效。" /> : null}
           <Panel id="tutorial-building-area" className="overflow-hidden p-0">
             <div className="relative">
               <img src={KEEP_SCENE} alt="灰隼堡主城" className="h-56 w-full object-cover opacity-75 sm:h-72" onError={(event) => { event.currentTarget.style.display = "none"; }} />

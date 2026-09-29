@@ -323,7 +323,13 @@ const [scene, setScene] = useState<SceneKey>("council");
         </div>
       }
     >
-      {tutorialCouncil ? <TutorialSpotlight className="mb-4" targetId="tutorial-council-input" title="听取同伴的意见" description="在高亮输入区写下一句话并发送。新手会谈使用本地角色回应，不消耗 AI 额度。" /> : null}
+      {tutorialCouncil ? (
+        <TutorialSpotlight
+          targetId={isConversationOpen ? "tutorial-council-send" : pickerOpen ? "tutorial-council-dialog-open" : "tutorial-council-open"}
+          title={isConversationOpen ? "点击这里聊天" : "点击这里开始会谈"}
+          description={isConversationOpen ? "问题已经为你填好，点击“发言”听取同伴意见。本次不消耗 AI 额度。" : "在场角色已经选好，先开启会谈。"}
+        />
+      ) : null}
       <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
         {/* 对话区 */}
         <div className="space-y-3">
@@ -405,7 +411,7 @@ const [scene, setScene] = useState<SceneKey>("council");
                     </p>
                   </div>
                 ) : null}
-                <div id="tutorial-council-input" className="flex gap-2">
+                <div className="flex gap-2">
                   <Textarea
                     value={input}
                     onChange={(event) => setInput(event.target.value)}
@@ -416,6 +422,7 @@ const [scene, setScene] = useState<SceneKey>("council");
                     className="min-h-[44px] resize-none border-[color:var(--ink-500)]/70 bg-[color:var(--ink-950)]/85 text-sm text-[color:var(--parchment)]"
                   />
                   <Button
+                    id={tutorialCouncil && isConversationOpen ? "tutorial-council-send" : undefined}
                     className="btn-gold shrink-0 border-transparent text-[color:var(--ink-950)]"
                     disabled={!isConversationOpen || !hasPresence || !canTalk || !input.trim() || talk.isPending}
                     onClick={() => talk.mutate({ conversationId: conversationId!, message: input.trim(), activeCharKey: activeCharKey === ALL_ACTIVE ? null : activeCharKey, presentKeys, tutorialFallback: tutorialCouncil })}
@@ -614,6 +621,7 @@ const [scene, setScene] = useState<SceneKey>("council");
                     </SelectContent>
                   </Select>
                   <Button
+                    id={tutorialCouncil && !isConversationOpen && !pickerOpen ? "tutorial-council-open" : undefined}
                     className="btn-gold w-full border-transparent text-[color:var(--ink-950)]"
                     disabled={!hasPresence || openConversation.isPending}
                     onClick={() => openConversation.mutate({ scene, presentKeys })}
@@ -726,6 +734,7 @@ const [scene, setScene] = useState<SceneKey>("council");
             </Select>
           </div>
           <Button
+            id={tutorialCouncil && pickerOpen ? "tutorial-council-dialog-open" : undefined}
             className="btn-gold w-full border-transparent text-[color:var(--ink-950)]"
             disabled={!hasPresence || openConversation.isPending}
             onClick={() => openConversation.mutate({ scene, presentKeys })}

@@ -150,8 +150,8 @@ export default function World() {
         </div>
       }
     >
-      {onboarding.data?.currentKey === "enter_world" ? <TutorialSpotlight className="mb-4" targetId="tutorial-node-sp-keep-road" title="前往灰隼堡外郊" description="这里是最安全的出发点。点击高亮节点，查看敌人、体力消耗与首通奖励。" /> : null}
-      {onboarding.data?.currentKey === "first_battle" ? <TutorialSpotlight className="mb-4" targetId="tutorial-start-battle" title="开始第一场战斗" description="节点情报已经展开。确认远征队状态后，点击高亮的“出征”进入战场。" /> : null}
+      {onboarding.data?.currentKey === "enter_world" ? <TutorialSpotlight targetId="tutorial-node-sp-keep-road" title="点击这里查看第一个关卡" description="这里最适合首次远征，可以查看敌人、体力消耗与奖励。" /> : null}
+      {onboarding.data?.currentKey === "first_battle" ? <TutorialSpotlight targetId="tutorial-start-battle" title="点击这里出征" description="远征队已经准备好，进入你的第一场战斗。" /> : null}
       {/* 远征建议 */}
       <Panel gold className="mb-4 p-4">
         <div className="flex flex-wrap items-center gap-3">

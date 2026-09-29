@@ -61,7 +61,7 @@ const TUTORIAL_COPY = {
   claim_battle_rewards: { label: "查看第一次远征收获", hint: "战利品已经由远征结算写入档案。", href: "/keep" },
   council_talk: { label: "在议事厅听取意见", hint: "与至少一名同伴完成一次会谈。", href: "/council" },
   first_recruit: { label: "完成一次普通招募", hint: "普通招募的概率与消耗均在招募页公开。", href: "/recruit" },
-  tutorial_complete: { label: "灰隼堡的第一天", hint: "第一条远征循环已经完成。", href: "/keep" },
+  tutorial_complete: { label: "新手指导已完成", hint: "第一条远征循环已经完成，接下来可以自由发展领地。", href: "/keep" },
 } as const;
 
 export const metaRouter = router({
@@ -118,7 +118,10 @@ export const metaRouter = router({
     const owned = db ? await db.select().from(playerCharacters).where(eq(playerCharacters.profileId, profile.id)) : [];
     const completed = new Set(tutorial?.completedKeys ?? []);
     const steps = TUTORIAL_STEPS.map((key) => ({ id: key, ...TUTORIAL_COPY[key], done: Boolean(tutorial?.skipped || completed.has(key)) }));
-    const nextStep = tutorial && !tutorial.skipped ? { key: tutorial.currentKey, ...TUTORIAL_COPY[tutorial.currentKey] } : null;
+    // 完成态不是一个待执行目标，不能继续向客户端下发“前往”按钮。
+    const nextStep = tutorial && !tutorial.skipped && tutorial.currentKey !== "tutorial_complete"
+      ? { key: tutorial.currentKey, ...TUTORIAL_COPY[tutorial.currentKey] }
+      : null;
 
     return {
       tutorialStep: profileRow?.tutorialStep ?? 0,

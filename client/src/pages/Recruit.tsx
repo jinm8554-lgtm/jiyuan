@@ -114,7 +114,7 @@ export default function Recruit() {
         </div>
       }
     >
-      {onboarding.data?.currentKey === "first_recruit" ? <TutorialSpotlight className="mb-4" targetId="tutorial-normal-recruit" title="完成一次普通招募" description="普通招募的消耗、概率与保底均在这里公开；结果将由服务端写入招募历史。" /> : null}
+      {onboarding.data?.currentKey === "first_recruit" ? <TutorialSpotlight targetId="tutorial-normal-recruit" title="点击这里完成一次招募" description="将消耗按钮上标明的星辉，概率和保底规则可随时查看。" /> : null}
       {/* 卡池选择 */}
       <div className="mb-4 grid gap-2 sm:grid-cols-3">
         {pools.data.map((item) => (

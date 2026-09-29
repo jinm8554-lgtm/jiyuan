@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Link, useLocation } from "wouter";
-import { ArrowRight, CheckCircle2, Compass, LocateFixed, SkipForward } from "lucide-react";
+import { ArrowRight, CheckCircle2, Compass, MousePointerClick, SkipForward } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
@@ -54,7 +54,6 @@ export function TutorialGuide() {
     current
       && !welcome
       && !transition
-      && current.key !== "tutorial_complete"
       && current.href !== location,
   );
 
@@ -116,57 +115,123 @@ export function TutorialGuide() {
   );
 }
 
-/** 异步页面也会持续寻找目标；找到后自动滚动并保持醒目的操作高亮。 */
-export function TutorialSpotlight({ targetId, title, description, className }: { targetId: string; title: string; description: string; className?: string }) {
-  const [found, setFound] = useState(false);
-  const targetRef = useRef<HTMLElement | null>(null);
+type CoachmarkPlacement = "top" | "right" | "bottom" | "left";
 
-  const locate = useCallback(() => {
-    const target = document.getElementById(targetId);
+type CoachmarkPosition = {
+  left: number;
+  top: number;
+  width: number;
+  placement: CoachmarkPlacement;
+};
+
+/** 异步页面也会持续寻找目标；提示直接贴在目标旁边，不再要求玩家二次“定位”。 */
+export function TutorialSpotlight({ targetId, title, description, className }: { targetId: string; title: string; description: string; className?: string }) {
+  const [position, setPosition] = useState<CoachmarkPosition | null>(null);
+  const targetRef = useRef<HTMLElement | null>(null);
+  const coachmarkRef = useRef<HTMLDivElement | null>(null);
+
+  const updatePosition = useCallback(() => {
+    const target = targetRef.current;
     if (!target) return;
-    target.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" });
-    target.focus({ preventScroll: true });
-  }, [targetId]);
+    const rect = target.getBoundingClientRect();
+    const margin = 12;
+    const gap = 14;
+    const width = Math.min(300, window.innerWidth - margin * 2);
+    const measuredHeight = coachmarkRef.current?.offsetHeight ?? 112;
+    const roomRight = window.innerWidth - rect.right - margin;
+    const roomLeft = rect.left - margin;
+    const roomBelow = window.innerHeight - rect.bottom - margin;
+    let placement: CoachmarkPlacement;
+    if (window.innerWidth >= 640 && roomRight >= width + gap) placement = "right";
+    else if (window.innerWidth >= 640 && roomLeft >= width + gap) placement = "left";
+    else if (roomBelow >= measuredHeight + gap) placement = "bottom";
+    else placement = "top";
+
+    let left = rect.left + rect.width / 2 - width / 2;
+    let top = rect.bottom + gap;
+    if (placement === "right") {
+      left = rect.right + gap;
+      top = rect.top + rect.height / 2 - measuredHeight / 2;
+    } else if (placement === "left") {
+      left = rect.left - width - gap;
+      top = rect.top + rect.height / 2 - measuredHeight / 2;
+    } else if (placement === "top") {
+      top = rect.top - measuredHeight - gap;
+    }
+
+    left = Math.max(margin, Math.min(left, window.innerWidth - width - margin));
+    top = Math.max(margin, Math.min(top, window.innerHeight - measuredHeight - margin));
+    const next = { left: Math.round(left), top: Math.round(top), width, placement };
+    setPosition((current) => current
+      && current.left === next.left
+      && current.top === next.top
+      && current.width === next.width
+      && current.placement === next.placement
+      ? current
+      : next);
+  }, []);
+
+  const setCoachmarkNode = useCallback((node: HTMLDivElement | null) => {
+    coachmarkRef.current = node;
+    if (node) window.requestAnimationFrame(updatePosition);
+  }, [updatePosition]);
 
   useEffect(() => {
     let scrolled = false;
+    const resizeObserver = new ResizeObserver(updatePosition);
     const bindTarget = () => {
       const target = document.getElementById(targetId);
       if (targetRef.current !== target) {
+        if (targetRef.current) resizeObserver.unobserve(targetRef.current);
         targetRef.current?.classList.remove("tutorial-spotlight");
         targetRef.current?.removeAttribute("data-tutorial-current");
         targetRef.current = target;
         target?.classList.add("tutorial-spotlight");
         target?.setAttribute("data-tutorial-current", "true");
-        setFound(Boolean(target));
+        if (target) resizeObserver.observe(target);
+        else setPosition(null);
       }
       if (target && !scrolled) {
         scrolled = true;
         window.setTimeout(() => target.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" }), 120);
       }
+      if (target) window.requestAnimationFrame(updatePosition);
     };
     bindTarget();
     const observer = new MutationObserver(bindTarget);
     observer.observe(document.body, { childList: true, subtree: true });
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
     return () => {
       observer.disconnect();
+      resizeObserver.disconnect();
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
       targetRef.current?.classList.remove("tutorial-spotlight");
       targetRef.current?.removeAttribute("data-tutorial-current");
       targetRef.current = null;
     };
-  }, [targetId]);
+  }, [targetId, updatePosition]);
 
-  if (typeof document === "undefined") return null;
+  if (typeof document === "undefined" || !position) return null;
+  const arrowClass = {
+    top: "-bottom-1.5 left-1/2 -translate-x-1/2 border-b border-r",
+    right: "-left-1.5 top-1/2 -translate-y-1/2 border-b border-l",
+    bottom: "-top-1.5 left-1/2 -translate-x-1/2 border-l border-t",
+    left: "-right-1.5 top-1/2 -translate-y-1/2 border-r border-t",
+  }[position.placement];
   return createPortal(
-    <div className="pointer-events-none fixed bottom-20 left-3 z-[65] w-[calc(100vw-1.5rem)] max-w-sm lg:bottom-5 lg:left-5">
-      <Panel gold className={cn("pointer-events-auto border-[color:var(--gold-500)]/80 bg-[color:var(--ink-900)] p-3 shadow-2xl", className)} role="status" aria-live="polite">
-        <p className="text-caption">新手指引 · {found ? "目标已高亮" : "正在定位"}</p>
-        <p className="mt-1 text-sm font-medium text-[color:var(--parchment)]">{title}</p>
-        <p className="mt-1 text-xs leading-relaxed text-[color:var(--parchment-muted)]">{description}</p>
-        <div className="mt-3 flex items-center justify-between gap-2">
-          <TutorialSkip />
-          <Button size="sm" variant="outline" className="h-7 border-[color:var(--gold-600)]/60 px-2 text-xs text-[color:var(--gold-300)]" disabled={!found} onClick={locate}><LocateFixed size={12} className="mr-1" />定位操作</Button>
-        </div>
+    <div
+      ref={setCoachmarkNode}
+      data-testid="tutorial-coachmark"
+      className="pointer-events-none fixed z-[65]"
+      style={{ left: position.left, top: position.top, width: position.width }}
+    >
+      <span className={cn("absolute z-10 h-3 w-3 rotate-45 border-[color:var(--gold-500)]/80 bg-[color:var(--ink-900)]", arrowClass)} />
+      <Panel gold className={cn("pointer-events-auto relative border-[color:var(--gold-500)]/90 bg-[color:var(--ink-900)] p-3 shadow-2xl", className)} role="status" aria-live="polite">
+        <p className="flex items-center gap-1.5 text-sm font-semibold text-[color:var(--gold-300)]"><MousePointerClick size={15} />{title}</p>
+        <p className="mt-1 text-xs leading-relaxed text-[color:var(--parchment-dim)]">{description}</p>
+        <TutorialSkip className="mt-1 ml-auto flex" />
       </Panel>
     </div>,
     document.body,

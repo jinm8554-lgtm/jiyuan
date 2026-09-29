@@ -168,7 +168,7 @@ export default function Roster() {
         </div>
       }
     >
-      {onboarding.data?.currentKey === "form_expedition" ? <TutorialSpotlight className="mb-4" targetId="tutorial-team-save" title="编成第一支远征队" description="选择 1 至 4 名同伴；前排更适合承伤，后排负责输出或治疗。保存后即可前往灰隼堡外郊。" /> : null}
+      {onboarding.data?.currentKey === "form_expedition" ? <TutorialSpotlight targetId="tutorial-team-save" title="选好同伴后点击这里保存" description="选择 1 至 4 名同伴；前排承伤，后排输出或治疗。" /> : null}
       <div className="grid gap-4 lg:grid-cols-[1.5fr_1fr]">
         {/* 角色网格 */}
         <div>

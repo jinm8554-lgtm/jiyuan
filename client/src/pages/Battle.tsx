@@ -443,7 +443,7 @@ export default function Battle() {
           </Link>
           {state && !state.finished ? (
             <>
-              <Button data-testid="battle-auto-resolve" className="btn-gold h-10 min-w-[8.5rem] border-transparent px-5 text-sm shadow-[0_0_24px_color-mix(in_srgb,var(--gold-400)_42%,transparent)] ring-1 ring-[color:var(--gold-300)]/60" onClick={() => auto.mutate({ battleId: battleId! })} disabled={auto.isPending || !battleId}>
+              <Button id="tutorial-battle-auto" data-testid="battle-auto-resolve" className="btn-gold h-10 min-w-[8.5rem] border-transparent px-5 text-sm shadow-[0_0_24px_color-mix(in_srgb,var(--gold-400)_42%,transparent)] ring-1 ring-[color:var(--gold-300)]/60" onClick={() => auto.mutate({ battleId: battleId! })} disabled={auto.isPending || !battleId}>
                 <Play size={15} className="mr-1 fill-current" />
                 {auto.isPending ? "战斗推演中…" : "自动战斗"}
               </Button>
@@ -456,7 +456,7 @@ export default function Battle() {
         </div>
       }
     >
-      {onboarding.data?.currentKey === "first_battle" ? <TutorialSpotlight className="mb-4" targetId="tutorial-battle-command" title="完成第一场战斗" description="行动条决定先后；前排承受伤害，后排提供输出或治疗。轮到我方时可选择攻击、技能，或使用自动战斗。" /> : null}
+      {onboarding.data?.currentKey === "first_battle" ? <TutorialSpotlight targetId="tutorial-battle-auto" title="点击这里开始自动战斗" description="也可以等待我方行动时手动选择攻击或技能。" /> : null}
       {start.isError ? <ErrorState className="mb-4" message={start.error?.message} onRetry={() => { startedRef.current = true; start.mutate({ nodeKey }); }} /> : null}
 
       {!state ? (
