@@ -323,7 +323,7 @@ const [scene, setScene] = useState<SceneKey>("council");
         </div>
       }
     >
-      {tutorialCouncil ? <TutorialSpotlight className="mb-4" targetId="tutorial-council-send" title="听取同伴的意见" description="新手会谈使用本地角色回应，不消耗 AI 额度；会谈和羁绊仍会真实写入档案。" /> : null}
+      {tutorialCouncil ? <TutorialSpotlight className="mb-4" targetId="tutorial-council-input" title="听取同伴的意见" description="在高亮输入区写下一句话并发送。新手会谈使用本地角色回应，不消耗 AI 额度。" /> : null}
       <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
         {/* 对话区 */}
         <div className="space-y-3">
@@ -405,7 +405,7 @@ const [scene, setScene] = useState<SceneKey>("council");
                     </p>
                   </div>
                 ) : null}
-                <div className="flex gap-2">
+                <div id="tutorial-council-input" className="flex gap-2">
                   <Textarea
                     value={input}
                     onChange={(event) => setInput(event.target.value)}
@@ -417,7 +417,6 @@ const [scene, setScene] = useState<SceneKey>("council");
                   />
                   <Button
                     className="btn-gold shrink-0 border-transparent text-[color:var(--ink-950)]"
-                    id="tutorial-council-send"
                     disabled={!isConversationOpen || !hasPresence || !canTalk || !input.trim() || talk.isPending}
                     onClick={() => talk.mutate({ conversationId: conversationId!, message: input.trim(), activeCharKey: activeCharKey === ALL_ACTIVE ? null : activeCharKey, presentKeys, tutorialFallback: tutorialCouncil })}
                   >

@@ -64,7 +64,16 @@ export default function Keep() {
 
   const upgrade = trpc.keep.upgradeBuilding.useMutation({
     onSuccess: async (result) => {
-      if (result.buildingKey === "wall") setTutorialWallQueued(true);
+      if (result.buildingKey === "wall") {
+        setTutorialWallQueued(true);
+        if (result.seconds > 0) {
+          window.setTimeout(() => {
+            toast.info("南墙施工已经完成", { description: "点击高亮的“结算施工”，让防御加成正式生效。" });
+            void utils.keep.home.invalidate();
+            document.getElementById("tutorial-settle-construction")?.scrollIntoView({ behavior: "smooth", block: "center" });
+          }, result.seconds * 1000 + 300);
+        }
+      }
       toast.success(`「${selected?.name ?? result.buildingKey}」已开始升级至 ${result.upgradingTo} 级`, {
         description: `预计 ${Math.max(1, Math.round(result.seconds / 60))} 分钟完成，可随时在议事厅结算。`,
       });
@@ -81,7 +90,7 @@ export default function Keep() {
       } else {
         toast.info("暂时没有完成的施工");
       }
-      await Promise.all([utils.keep.home.invalidate(), utils.keep.resources.invalidate()]);
+      await Promise.all([utils.keep.home.invalidate(), utils.keep.resources.invalidate(), utils.keep.quests.invalidate(), utils.meta.onboarding.invalidate()]);
     },
     onError: (error) => toast.error("结算失败", { description: error.message }),
   });
@@ -127,8 +136,13 @@ export default function Keep() {
   }, [onboarding.data]);
 
   useEffect(() => {
-    if (onboarding.data?.currentKey !== "build_wall" || selected || tutorialWallQueued || !data) return;
+    if (onboarding.data?.currentKey !== "build_wall" || tutorialWallQueued || !data) return;
     const wall = (data.buildings as BuildingView[]).find((building) => building.buildingKey === "wall");
+    if (selected?.buildingKey === "wall") return;
+    if (selected) {
+      setSelected(null);
+      return;
+    }
     // 只在尚未开工时自动展示南墙详情。开工后若仍反复打开弹窗，
     // 会遮住页面上的“结算施工”操作，令新手流程无法继续。
     if (wall && wall.level < 1 && !wall.upgradingTo) setSelected(wall);
@@ -203,7 +217,7 @@ export default function Keep() {
         {/* 左：领地视图 */}
         <div className="space-y-4">
           {onboarding.data?.currentKey === "inspect_keep" ? <TutorialSpotlight targetId="tutorial-building-area" title="先看看灰隼堡" description="点击任意建筑，查看它的等级、效果与升级成本。" /> : null}
-          {onboarding.data?.currentKey === "build_wall" ? <TutorialSpotlight targetId="keep-building-wall" title="先修好南墙" description="城墙能让灰隼堡拥有第一项防御加成；教学施工只需几秒。" /> : null}
+          {onboarding.data?.currentKey === "build_wall" ? <TutorialSpotlight targetId="tutorial-wall-upgrade" title="开始修复南墙" description="已为你打开南墙详情。点击高亮的“开始施工”；教学施工只需几秒。" /> : null}
           {onboarding.data?.currentKey === "finish_wall" ? <TutorialSpotlight targetId="tutorial-settle-construction" title="结算南墙施工" description="施工完成后点击结算，让防御加成正式生效。" /> : null}
           <Panel id="tutorial-building-area" className="overflow-hidden p-0">
             <div className="relative">
@@ -607,6 +621,7 @@ export default function Keep() {
               <DialogFooter className="gap-2">
                 <Button variant="ghost" className="text-[color:var(--parchment-muted)]" onClick={() => setSelected(null)}>关闭</Button>
                 <Button
+                  id={onboarding.data?.currentKey === "build_wall" && selected.buildingKey === "wall" ? "tutorial-wall-upgrade" : undefined}
                   className="btn-gold border-transparent text-[color:var(--ink-950)]"
                   disabled={upgrade.isPending || !selected.nextLevel}
                   onClick={() => upgrade.mutate({ buildingKey: selected.buildingKey })}

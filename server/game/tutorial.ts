@@ -3,7 +3,6 @@ import {
   aiMessages,
   battles,
   gameProfiles,
-  nodeStates,
   playerCharacters,
   profileBuildings,
   recruitHistories,
@@ -96,12 +95,11 @@ function compatibilityStep(completed: Set<TutorialStepKey>) {
 async function completedFromGame(profileId: number): Promise<TutorialStepKey[]> {
   const db = await getDb();
   if (!db) return [];
-  const [buildings, teamRows, characters, wonBattles, nodeRows, messages, draws] = await Promise.all([
+  const [buildings, teamRows, characters, wonBattles, messages, draws] = await Promise.all([
     db.select().from(profileBuildings).where(eq(profileBuildings.profileId, profileId)),
     db.select().from(teams).where(eq(teams.profileId, profileId)),
     db.select().from(playerCharacters).where(eq(playerCharacters.profileId, profileId)),
     db.select().from(battles).where(and(eq(battles.profileId, profileId), eq(battles.status, "won"))).limit(1),
-    db.select().from(nodeStates).where(eq(nodeStates.profileId, profileId)),
     db.select().from(aiMessages).where(eq(aiMessages.profileId, profileId)).limit(1),
     db.select().from(recruitHistories).where(eq(recruitHistories.profileId, profileId)).limit(1),
   ]);
@@ -113,8 +111,9 @@ async function completedFromGame(profileId: number): Promise<TutorialStepKey[]> 
   const validTeam = teamRows.some((team) => team.isActive && (team.memberIds ?? []).some((id) => owned.has(id)));
   if (validTeam) completed.push("form_expedition");
   const hasWonBattle = wonBattles.length > 0;
-  const touchedTutorialNode = nodeRows.some((node) => node.nodeKey === "sp_keep_road" && node.status !== "locked");
-  if (hasWonBattle || touchedTutorialNode) completed.push("enter_world");
+  // 首个节点在建档时便会解锁；“已解锁”不等于玩家已经在地图上查看过。
+  // 正常流程由 viewTutorialNode 明确落库，历史存档仅在已有胜场时自愈补齐。
+  if (hasWonBattle) completed.push("enter_world");
   if (hasWonBattle) completed.push("first_battle", "claim_battle_rewards");
   if (messages.length > 0) completed.push("council_talk");
   if (draws.length > 0) completed.push("first_recruit");

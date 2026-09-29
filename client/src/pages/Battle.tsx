@@ -243,6 +243,7 @@ export default function Battle() {
         void utils.keep.home.invalidate();
         void utils.keep.resources.invalidate();
         void utils.keep.quests.invalidate();
+        void utils.meta.onboarding.invalidate();
         void utils.world.map.invalidate();
       }
     },
@@ -284,6 +285,7 @@ export default function Battle() {
       void utils.keep.home.invalidate();
       void utils.keep.resources.invalidate();
       void utils.keep.quests.invalidate();
+      void utils.meta.onboarding.invalidate();
       void utils.world.map.invalidate();
     },
     onError: (error) => toast.error("自动推演失败", { description: error.message }),

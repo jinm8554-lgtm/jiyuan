@@ -42,14 +42,17 @@ test("新玩家可以完成登录、建档、首战和招募", async ({ page }) 
   });
 
   await test.step("完成首个建筑与远征队编成", async () => {
+    await expect(page.getByText("先看看灰隼堡", { exact: true })).toBeVisible();
+    await expect(page.locator("#tutorial-building-area")).toHaveClass(/tutorial-spotlight/);
     await page.locator("#keep-building-wall").click();
     await expect(page.getByRole("heading", { name: "城墙" })).toBeVisible();
-    await page.getByRole("button", { name: "开始施工" }).click();
+    await expect(page.locator("#tutorial-wall-upgrade")).toHaveClass(/tutorial-spotlight/);
+    await page.locator("#tutorial-wall-upgrade").click();
+    await expect(page.getByText("下一步：结算南墙施工", { exact: true })).toBeVisible();
     await expect(page.getByText("施工中").first()).toBeVisible();
     await page.waitForTimeout(6_000);
     await page.locator("#tutorial-settle-construction").click();
-    await page.getByRole("link", { name: "同伴" }).click();
-    await expect(page).toHaveURL(/\/roster$/);
+    await expect(page).toHaveURL(/\/roster$/, { timeout: 10_000 });
     await expect(page.locator("#tutorial-team-save")).toBeVisible();
     const companions = page.locator('button[title*=" · "]');
     expect(await companions.count()).toBeGreaterThanOrEqual(1);
@@ -57,6 +60,8 @@ test("新玩家可以完成登录、建档、首战和招募", async ({ page }) 
     if (await companions.count() > 1) await companions.nth(1).click();
     await page.locator("#tutorial-team-save").click();
     await expect(page.getByText("远征队已更新")).toBeVisible();
+    await expect(page.getByText("下一步：前往灰隼堡外郊", { exact: true })).toBeVisible();
+    await expect(page).toHaveURL(/\/world$/, { timeout: 10_000 });
   });
 
   await test.step("全局静音会跨页面与刷新保留", async () => {
@@ -151,7 +156,7 @@ test("新玩家可以完成登录、建档、首战和招募", async ({ page }) 
     const messenger = page.getByRole("dialog", { name: "商会信使在等候" });
     await expect(messenger).toBeVisible();
     await expect(messenger.getByText("1091159024", { exact: true })).toBeVisible();
-    await messenger.getByRole("button", { name: "我已记下" }).click();
+    await messenger.getByRole("button", { name: "关闭" }).click();
     await expect(messenger).toBeHidden();
   });
 

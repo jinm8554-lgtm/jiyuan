@@ -150,7 +150,8 @@ export default function World() {
         </div>
       }
     >
-      {onboarding.data?.currentKey === "enter_world" ? <TutorialSpotlight className="mb-4" targetId="tutorial-node-sp-keep-road" title="前往灰隼堡外郊" description="这里是最安全的出发点。查看敌人、体力消耗、首通奖励与推荐战力后再出征。" /> : null}
+      {onboarding.data?.currentKey === "enter_world" ? <TutorialSpotlight className="mb-4" targetId="tutorial-node-sp-keep-road" title="前往灰隼堡外郊" description="这里是最安全的出发点。点击高亮节点，查看敌人、体力消耗与首通奖励。" /> : null}
+      {onboarding.data?.currentKey === "first_battle" ? <TutorialSpotlight className="mb-4" targetId="tutorial-start-battle" title="开始第一场战斗" description="节点情报已经展开。确认远征队状态后，点击高亮的“出征”进入战场。" /> : null}
       {/* 远征建议 */}
       <Panel gold className="mb-4 p-4">
         <div className="flex flex-wrap items-center gap-3">
@@ -424,6 +425,7 @@ export default function World() {
               <div className="flex flex-wrap gap-2">
                 {onboarding.data?.currentKey === "enter_world" ? <TutorialSkip /> : null}
                 <Button
+                  id="tutorial-start-battle"
                   className="btn-gold border-transparent text-[color:var(--ink-950)]"
                   disabled={!activeNode.unlocked}
                   onClick={() => navigate(`/battle/${activeNode.nodeKey}`)}

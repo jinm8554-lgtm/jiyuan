@@ -120,7 +120,6 @@ export default function Recruit() {
         {pools.data.map((item) => (
           <button
             key={item.poolKey}
-            id={item.poolType === "normal" ? "tutorial-normal-recruit" : undefined}
             onClick={() => setActivePool(item.poolKey)}
             className={cn(
               "card-tap rounded-sm border p-3 text-left",
@@ -197,6 +196,7 @@ export default function Recruit() {
                   <div className="flex flex-wrap gap-2">
                     {onboarding.data?.currentKey === "first_recruit" ? <TutorialSkip /> : null}
                     <Button
+                      id={pool.poolType === "normal" ? "tutorial-normal-recruit" : undefined}
                       data-testid="recruit-single-draw"
                       className="btn-gold border-transparent text-[color:var(--ink-950)]"
                       disabled={!pool.open || draw.isPending || aether < pool.costSingle}
