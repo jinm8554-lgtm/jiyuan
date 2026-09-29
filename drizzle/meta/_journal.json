@@ -78,6 +78,13 @@
       "when": 1790610875445,
       "tag": "0010_council_quota",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "5",
+      "when": 1790655433433,
+      "tag": "0011_member_activity",
+      "breakpoints": true
     }
   ]
 }

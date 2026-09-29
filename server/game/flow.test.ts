@@ -207,8 +207,11 @@ flowDescribe("核心流程：从建档到征服", () => {
 
     const first = await accrueProfile(profileId, now);
     const second = await accrueProfile(profileId, now);
-    expect(first.secondsElapsed).toBe(3600);
-    expect(second.secondsElapsed).toBe(0);
+    // MySQL 的 DATETIME 不保存毫秒；跨秒边界时可能多出 1 秒。
+    expect(first.secondsElapsed).toBeGreaterThanOrEqual(3600);
+    expect(first.secondsElapsed).toBeLessThanOrEqual(3601);
+    // 同一时刻再次结算只允许数据库秒精度造成的边界误差，不可再次领取整段离线产出。
+    expect(second.secondsElapsed).toBeLessThanOrEqual(1);
 
     const [saved] = await db.select({ lastTickAt: gameProfiles.lastTickAt }).from(gameProfiles).where(eq(gameProfiles.id, profileId)).limit(1);
     // MySQL 的 DATETIME 按秒存储，允许毫秒在边界处四舍五入。
@@ -760,6 +763,26 @@ flowDescribe("核心流程：从建档到征服", () => {
     }
   }, 90_000);
 
+  it("14a. GM 会员与角色管理：可按在线时长排序并修正会员角色", async () => {
+    const activeAt = new Date();
+    await db.update(users).set({ onlineSeconds: 5_400, lastActiveAt: activeAt }).where(eq(users.id, playerUserId));
+
+    const listed = await admin.admin.listMembers({ search: TEST_OPEN_ID, sortBy: "onlineSeconds", sortDirection: "desc" });
+    const member = listed.members.find((item) => item.id === playerUserId);
+    expect(member).toMatchObject({ onlineSeconds: 5_400, online: true });
+    expect(member?.profile?.id).toBe(profileId);
+
+    const gameData = await admin.admin.getMemberGameData({ userId: playerUserId });
+    expect(gameData.profile?.id).toBe(profileId);
+    expect(gameData.characters.length).toBeGreaterThan(0);
+
+    const target = gameData.characters[0];
+    const level = Math.min(100, target.level + 1);
+    await admin.admin.updateMemberCharacter({ playerCharacterId: target.id, level, affection: 42, locked: true });
+    const updated = await admin.admin.getMemberGameData({ userId: playerUserId });
+    expect(updated.characters.find((item) => item.id === target.id)).toMatchObject({ level, affection: 42, locked: true });
+  }, 60_000);
+
   it("15. 审计日志：后台关键操作全部留痕（可追溯）", async () => {
     // 审计接口只返回最近 100 条，故在此显式写入一条可识别的操作再读取
     const targetProfileId = profileId > 0 ? profileId : (await admin.admin.listPlayerProfiles())[0]?.id;
@@ -787,6 +810,7 @@ flowDescribe("核心流程：从建档到征服", () => {
     expect(actions.has("resources.set")).toBe(true);
     expect(actions.has("backup.create")).toBe(true);
     expect(actions.has("member.delete")).toBe(true);
+    expect(actions.has("member.character.update")).toBe(true);
     // 审计日志必须记录操作者，便于追责
     expect(logs.every((log) => log.adminUserId > 0)).toBe(true);
   }, 60_000);

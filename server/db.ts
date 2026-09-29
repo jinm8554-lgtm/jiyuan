@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { createPool } from "mysql2/promise";
 import { InsertUser, users } from "../drizzle/schema";
@@ -116,6 +116,29 @@ export async function getUserByOpenId(openId: string) {
   const result = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
 
   return result.length > 0 ? result[0] : undefined;
+}
+
+/**
+ * 以服务端请求作为活动心跳累计在线秒数。超过五分钟没有请求时，空档不计入在线时长，
+ * 避免关闭页面后仍把离线时间累计进去。
+ */
+export async function recordUserActivity(userId: number, now = new Date()): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+
+  const maxGapSeconds = 5 * 60;
+  await db.execute(sql`
+    UPDATE ${users}
+    SET
+      ${users.onlineSeconds} = ${users.onlineSeconds} + CASE
+        WHEN ${users.lastActiveAt} IS NULL THEN 0
+        WHEN TIMESTAMPDIFF(SECOND, ${users.lastActiveAt}, ${now}) BETWEEN 0 AND ${maxGapSeconds}
+          THEN TIMESTAMPDIFF(SECOND, ${users.lastActiveAt}, ${now})
+        ELSE 0
+      END,
+      ${users.lastActiveAt} = ${now}
+    WHERE ${users.id} = ${userId}
+  `);
 }
 
 // TODO: add feature queries here as your schema grows.

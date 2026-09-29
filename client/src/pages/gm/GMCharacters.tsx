@@ -125,7 +125,8 @@ function toEditor(row: Record<string, unknown>): EditorState {
   };
 }
 
-export default function GMCharacters() {
+/** 角色资料库可嵌入会员与角色管理页，也保留独立路由供旧链接使用。 */
+export function CharacterLibrary() {
   const utils = trpc.useUtils();
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<string>(ALL);
@@ -238,10 +239,12 @@ export default function GMCharacters() {
   }
 
   return (
-    <GMShell
-      title="角色库"
-      eyebrow="角色资料 / 立绘上传 / 发布与下架 —— 保存后客户端立即生效"
-      actions={
+    <>
+      <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <div className="text-caption mb-1">角色资料 / 立绘上传 / 发布与下架</div>
+          <h2 className="text-display text-lg text-[color:var(--parchment)]">角色资料库</h2>
+        </div>
         <Button
           size="sm"
           className="btn-gold border-transparent text-[color:var(--ink-950)]"
@@ -252,8 +255,7 @@ export default function GMCharacters() {
         >
           新建角色
         </Button>
-      }
-    >
+      </div>
       <Panel className="mb-4 p-3">
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative min-w-[200px] flex-1">
@@ -554,6 +556,14 @@ export default function GMCharacters() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </>
+  );
+}
+
+export default function GMCharacters() {
+  return (
+    <GMShell title="会员与角色管理" eyebrow="会员 / 档案 / 已拥有角色 / 全局角色资料">
+      <CharacterLibrary />
     </GMShell>
   );
 }

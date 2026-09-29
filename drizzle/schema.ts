@@ -37,6 +37,10 @@ export const users = mysqlTable("users", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
+  /** 服务端按有效请求间隔累计的在线时长（秒），不接受客户端传值。 */
+  onlineSeconds: int("onlineSeconds").default(0).notNull(),
+  /** 最近一次有效请求，用于在线状态与下次时长累计。 */
+  lastActiveAt: timestamp("lastActiveAt"),
 });
 
 export type User = typeof users.$inferSelect;

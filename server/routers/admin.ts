@@ -1058,7 +1058,17 @@ export const adminRouter = router({
 
   /* ------------------------ 会员管理 ------------------------ */
   listMembers: adminProcedure
-    .input(z.object({ search: z.string().max(64).optional(), page: z.number().int().min(1).max(200).default(1), pageSize: z.number().int().min(5).max(50).default(20) }).optional())
+    .input(
+      z
+        .object({
+          search: z.string().max(64).optional(),
+          page: z.number().int().min(1).max(200).default(1),
+          pageSize: z.number().int().min(5).max(50).default(20),
+          sortBy: z.enum(["createdAt", "lastSignedIn", "onlineSeconds"]).default("createdAt"),
+          sortDirection: z.enum(["asc", "desc"]).default("desc"),
+        })
+        .optional(),
+    )
     .query(async ({ ctx, input }) => {
       requireAdmin(ctx);
       const db = await getDb();
@@ -1071,10 +1081,23 @@ export const adminRouter = router({
             .where(or(like(users.name, `%${search}%`), like(users.email, `%${search}%`), like(users.openId, `%${search}%`)))
             .limit(200)
         : await db.select().from(users).limit(200);
-      rows = rows.sort((a, b) => b.id - a.id);
-
       const profiles = await db.select().from(gameProfiles);
       const profileMap = new Map(profiles.map((profile) => [profile.userId, profile]));
+      const ownedCharacters = await db.select({ profileId: playerCharacters.profileId }).from(playerCharacters).limit(20000);
+      const characterCountByProfile = new Map<number, number>();
+      for (const character of ownedCharacters) {
+        characterCountByProfile.set(character.profileId, (characterCountByProfile.get(character.profileId) ?? 0) + 1);
+      }
+
+      const sortBy = input?.sortBy ?? "createdAt";
+      const direction = input?.sortDirection === "asc" ? 1 : -1;
+      rows.sort((a, b) => {
+        const aValue = sortBy === "onlineSeconds" ? a.onlineSeconds : a[sortBy].getTime();
+        const bValue = sortBy === "onlineSeconds" ? b.onlineSeconds : b[sortBy].getTime();
+        if (aValue !== bValue) return (aValue - bValue) * direction;
+        return (b.id - a.id) * direction;
+      });
+
       const page = input?.page ?? 1;
       const pageSize = input?.pageSize ?? 20;
       const paged = rows.slice((page - 1) * pageSize, page * pageSize);
@@ -1095,8 +1118,20 @@ export const adminRouter = router({
             banned: row.banned,
             createdAt: row.createdAt,
             lastSignedIn: row.lastSignedIn,
+            onlineSeconds: row.onlineSeconds,
+            lastActiveAt: row.lastActiveAt,
+            online: Boolean(row.lastActiveAt && Date.now() - row.lastActiveAt.getTime() <= 5 * 60 * 1000),
             profile: profile
-              ? { id: profile.id, lordName: profile.lordName, keepName: profile.keepName, chapter: profile.chapter, keepLevel: profile.keepLevel, renown: profile.renown, createdAt: profile.createdAt }
+              ? {
+                  id: profile.id,
+                  lordName: profile.lordName,
+                  keepName: profile.keepName,
+                  chapter: profile.chapter,
+                  keepLevel: profile.keepLevel,
+                  renown: profile.renown,
+                  createdAt: profile.createdAt,
+                  characterCount: characterCountByProfile.get(profile.id) ?? 0,
+                }
               : null,
           };
         }),
@@ -1140,6 +1175,108 @@ export const adminRouter = router({
       }
       await db.update(users).set(values).where(eq(users.id, input.userId));
       await audit(ctx, "member.update", "user", String(input.userId), values);
+      return { ok: true };
+    }),
+
+  /** 会员档案及其已拥有角色，供后台在一个入口内维护。 */
+  getMemberGameData: adminProcedure
+    .input(z.object({ userId: z.number().int().positive() }))
+    .query(async ({ ctx, input }) => {
+      requireAdmin(ctx);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "数据库连接不可用" });
+
+      const [profile] = await db.select().from(gameProfiles).where(eq(gameProfiles.userId, input.userId)).limit(1);
+      if (!profile) return { profile: null, characters: [] };
+
+      const owned = await db.select().from(playerCharacters).where(eq(playerCharacters.profileId, profile.id)).orderBy(desc(playerCharacters.updatedAt));
+      const charKeys = owned.map((character) => character.charKey);
+      const configs = charKeys.length > 0 ? await db.select().from(characters).where(inArray(characters.charKey, charKeys)) : [];
+      const configByKey = new Map(configs.map((character) => [character.charKey, character]));
+
+      return {
+        profile: {
+          id: profile.id,
+          lordName: profile.lordName,
+          keepName: profile.keepName,
+          chapter: profile.chapter,
+          keepLevel: profile.keepLevel,
+          renown: profile.renown,
+          gold: profile.gold,
+          food: profile.food,
+          wood: profile.wood,
+          iron: profile.iron,
+          aether: profile.aether,
+          stamina: profile.stamina,
+          staminaMax: profile.staminaMax,
+        },
+        characters: owned.map((character) => {
+          const config = configByKey.get(character.charKey);
+          return {
+            id: character.id,
+            charKey: character.charKey,
+            name: config?.name ?? character.charKey,
+            title: config?.title ?? "",
+            avatarUrl: config?.avatarUrl ?? null,
+            rarity: config?.rarity ?? "R",
+            job: config?.job ?? "",
+            level: character.level,
+            exp: character.exp,
+            ascension: character.ascension,
+            bondLevel: character.bondLevel,
+            bondExp: character.bondExp,
+            affection: character.affection,
+            locked: character.locked,
+            isNew: character.isNew,
+            obtainedAt: character.obtainedAt,
+            updatedAt: character.updatedAt,
+          };
+        }),
+      };
+    }),
+
+  /** GM 可修正某位会员已经拥有的角色成长数据；每次更改均写入审计日志。 */
+  updateMemberCharacter: adminProcedure
+    .input(
+      z
+        .object({
+          playerCharacterId: z.number().int().positive(),
+          level: z.number().int().min(1).max(100).optional(),
+          exp: z.number().int().min(0).max(2_000_000_000).optional(),
+          ascension: z.number().int().min(0).max(10).optional(),
+          bondLevel: z.number().int().min(1).max(20).optional(),
+          bondExp: z.number().int().min(0).max(2_000_000_000).optional(),
+          affection: z.number().int().min(-100).max(100).optional(),
+          locked: z.boolean().optional(),
+          isNew: z.boolean().optional(),
+        })
+        .refine((input) => Object.keys(input).some((key) => key !== "playerCharacterId"), "至少修改一项角色数据"),
+    )
+    .mutation(async ({ ctx, input }) => {
+      requireAdmin(ctx);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "数据库连接不可用" });
+
+      const [character] = await db.select().from(playerCharacters).where(eq(playerCharacters.id, input.playerCharacterId)).limit(1);
+      if (!character) throw new TRPCError({ code: "NOT_FOUND", message: "玩家角色不存在" });
+
+      const { playerCharacterId, ...updates } = input;
+      await db.update(playerCharacters).set(updates).where(eq(playerCharacters.id, playerCharacterId));
+      await audit(ctx, "member.character.update", "playerCharacter", String(playerCharacterId), {
+        profileId: character.profileId,
+        charKey: character.charKey,
+        before: {
+          level: character.level,
+          exp: character.exp,
+          ascension: character.ascension,
+          bondLevel: character.bondLevel,
+          bondExp: character.bondExp,
+          affection: character.affection,
+          locked: character.locked,
+          isNew: character.isNew,
+        },
+        after: updates,
+      });
       return { ok: true };
     }),
 

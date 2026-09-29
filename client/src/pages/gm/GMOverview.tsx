@@ -49,7 +49,7 @@ export default function GMOverview() {
             <RefreshCw size={13} className={cn("mr-1", sync.isPending && "animate-spin")} />
             同步内置配置
           </Button>
-          <Link href="/gm/characters">
+          <Link href="/gm/members">
             <Button size="sm" className="btn-gold border-transparent text-[color:var(--ink-950)]">
               角色库
               <ArrowRight size={13} className="ml-1" />
@@ -60,7 +60,7 @@ export default function GMOverview() {
     >
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {[
-          { label: "角色总数", value: data.counts.characters, sub: `草稿 ${data.counts.draftCharacters}`, icon: Users, href: "/gm/characters" },
+          { label: "角色总数", value: data.counts.characters, sub: `草稿 ${data.counts.draftCharacters}`, icon: Users, href: "/gm/members" },
           { label: "注册会员", value: data.counts.users, sub: `游戏档案 ${data.counts.profiles}`, icon: ShieldCheck, href: "/gm/members" },
           { label: "招募池", value: data.counts.pools, sub: "概率与保底", icon: Layers, href: "/gm/pools" },
           { label: "世界节点", value: data.counts.nodes, sub: "区域与关卡", icon: Database, href: "/gm/world" },

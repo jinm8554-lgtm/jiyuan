@@ -311,10 +311,9 @@ class SDKServer {
       throw ForbiddenError("User not found");
     }
 
-    await db.upsertUser({
-      openId: user.openId,
-      lastSignedIn: signedInAt,
-    });
+    // lastSignedIn 只代表实际登录。后续每个已认证请求只记活动心跳，
+    // 以便 GM 后台区分最后登录和累计在线时长。
+    await db.recordUserActivity(user.id, signedInAt);
 
     return user;
   }

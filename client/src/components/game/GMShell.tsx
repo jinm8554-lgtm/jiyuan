@@ -14,13 +14,12 @@ import { AllAgesNote, Panel } from "./ui";
 
 export const GM_NAV = [
   { path: "/gm", label: "总览", icon: ShieldCheck, hint: "运行状态与快捷入口" },
-  { path: "/gm/characters", label: "角色库", icon: Users, hint: "资料编辑 / 立绘上传 / 发布下架" },
   { path: "/gm/pools", label: "招募池", icon: Layers, hint: "概率 / 保底 / 开放时间 / 模拟" },
   { path: "/gm/world", label: "世界地图", icon: Compass, hint: "区域 / 节点 / 敌人 / 奖励" },
   { path: "/gm/content", label: "装备与技能", icon: Package, hint: "装备、技能与套装" },
   { path: "/gm/story", label: "任务与剧情", icon: ScrollText, hint: "任务 / 剧情 / 事件 / 建筑" },
   { path: "/gm/ai", label: "AI 配置", icon: Cpu, hint: "Base URL / 密钥 / 模型 / 测试 / 日志" },
-  { path: "/gm/members", label: "会员管理", icon: Users, hint: "权限 / 会员 / 封禁 / 账号" },
+  { path: "/gm/members", label: "会员与角色", icon: Users, hint: "账号 / 档案 / 角色 / 权限" },
   { path: "/gm/ops", label: "备份与运维", icon: Database, hint: "备份恢复 / 配置同步 / 审计" },
 ] as const;
 
