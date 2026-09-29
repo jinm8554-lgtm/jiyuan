@@ -21,6 +21,8 @@ import { BUILDING_BY_KEY, BUILDING_SEEDS } from "./data/buildings";
 import { EQUIPMENT_SEEDS, SET_BONUSES } from "./data/equipments";
 import { NODE_BY_KEY, NODE_SEEDS, REGION_SEEDS } from "./data/world";
 import { STARTER_CHAR_KEYS } from "./data/characters";
+import { QUEST_SEEDS } from "./data/quests";
+import { newTutorialProgress, readTutorialProgress } from "./tutorial";
 import { normalizeLeaderSkillLevels } from "./leadership";
 import {
   addStats,
@@ -65,9 +67,14 @@ export async function createProfile(userId: number, lordName: string, keepName =
       playerFamilyName: "瓦尔登",
       familyNameChanged: false,
       pendingEvents: [],
-      settings: {},
+      settings: { tutorial: newTutorialProgress() },
       leaderSkills: {},
       leaderLoadout: [],
+      // 新档案的基础领地物资统一为 2,000；其他货币与体力沿用既有规则。
+      gold: 2000,
+      food: 2000,
+      wood: 2000,
+      iron: 2000,
     })
     .$returningId();
   const profileId = result.id;
@@ -123,10 +130,8 @@ export async function createProfile(userId: number, lordName: string, keepName =
     })),
   );
 
-  // 默认队伍
-  // 关键：初始队伍必须自动编入初始角色，否则新领主第一次远征会直接失败
-  // （「队伍中没有角色」），这是最容易劝退玩家的首局体验。
-  const starterIds = starterInserts.map((row) => row.id);
+  // 默认队伍保留为空，交由新手流程中的「保存编成」写入；老档案仍由下方自愈逻辑保护。
+  void starterInserts;
   const [teamResult] = await db
     .insert(teams)
     .values({
@@ -134,8 +139,8 @@ export async function createProfile(userId: number, lordName: string, keepName =
       name: "远征队",
       slotIndex: 0,
       isActive: true,
-      memberIds: starterIds,
-      formation: Object.fromEntries(starterIds.map((id, index) => [String(id), index < 2 ? "front" : "back"])),
+      memberIds: [],
+      formation: {},
     })
     .$returningId();
   void teamResult;
@@ -191,6 +196,7 @@ export type AccrualResult = {
 	  staminaRecovered: number;
 };
 
+const FREE_DAILY_STAMINA_RESETS = 1;
 const MEMBER_DAILY_STAMINA_RESETS = 3;
 const MEMBER_DAILY_TRADE_RUSHES = 5;
 
@@ -203,6 +209,7 @@ export type MembershipBenefits = {
   membership: "free" | "supporter";
   expiresAt: Date | null;
   dayKey: string;
+  staminaResetLimit: number;
   staminaResetRemaining: number;
   tradeRushRemaining: number;
   tradeAutoDispatch: boolean;
@@ -232,13 +239,14 @@ export async function getMembershipBenefits(profileId: number, now = new Date())
     membership: user.membership,
     expiresAt: user.membershipExpiresAt,
     dayKey,
-    staminaResetRemaining: active ? Math.max(0, MEMBER_DAILY_STAMINA_RESETS - staminaResetUses) : 0,
+    staminaResetLimit: active ? MEMBER_DAILY_STAMINA_RESETS : FREE_DAILY_STAMINA_RESETS,
+    staminaResetRemaining: Math.max(0, (active ? MEMBER_DAILY_STAMINA_RESETS : FREE_DAILY_STAMINA_RESETS) - staminaResetUses),
     tradeRushRemaining: active ? Math.max(0, MEMBER_DAILY_TRADE_RUSHES - tradeRushUses) : 0,
     tradeAutoDispatch: active && profile.tradeAutoDispatch,
   };
 }
 
-export { MEMBER_DAILY_STAMINA_RESETS, MEMBER_DAILY_TRADE_RUSHES };
+export { FREE_DAILY_STAMINA_RESETS, MEMBER_DAILY_STAMINA_RESETS, MEMBER_DAILY_TRADE_RUSHES };
 
 /** 离线结算：建筑产出 × 时间（上限 12 小时）+ 体力恢复 + 升级完成 */
 export async function accrueProfile(profileId: number, now = new Date()): Promise<AccrualResult> {
@@ -369,7 +377,7 @@ export async function spendResources(
   return { ok: true as const, missing: [] as string[] };
 }
 
-export async function addResources(profileId: number, gain: Partial<ResourceBundle> & { renown?: number }) {
+export async function addResources(profileId: number, gain: Partial<ResourceBundle> & { renown?: number; stamina?: number; recruitShards?: number }) {
   const db = await getDb();
   if (!db) throw new Error("数据库不可用");
   const [profile] = await db.select().from(gameProfiles).where(eq(gameProfiles.id, profileId)).limit(1);
@@ -384,6 +392,8 @@ export async function addResources(profileId: number, gain: Partial<ResourceBund
     iron: clamp(profile.iron + (gain.iron ?? 0), 0, cap),
     aether: clamp(profile.aether + (gain.aether ?? 0), 0, cap),
     renown: clamp(profile.renown + (gain.renown ?? 0), 0, 9_999_999),
+    stamina: clamp(profile.stamina + (gain.stamina ?? 0), 0, profile.staminaMax),
+    recruitShards: clamp(profile.recruitShards + (gain.recruitShards ?? 0), 0, 9_999_999),
   };
   await db.update(gameProfiles).set(next).where(eq(gameProfiles.id, profileId));
   return next;
@@ -581,7 +591,9 @@ export async function ensureDefaultTeam(profileId: number) {
      * 会让玩家一进远征就报「队伍中没有角色」。此处若发现队伍为空且玩家已有角色，
      * 自动补入前 4 名角色并预设前/后排，保证任何账号都能立刻开战。
      */
-    if ((existing.memberIds ?? []).length === 0) {
+    const [profile] = await db.select().from(gameProfiles).where(eq(gameProfiles.id, profileId)).limit(1);
+    // 只有旧档案才自动补队；v2 新手档案必须由玩家保存第一支远征队。
+    if ((existing.memberIds ?? []).length === 0 && !readTutorialProgress(profile?.settings)) {
       const roster = await loadRoster(profileId);
       const picks = roster.slice(0, 4);
       if (picks.length > 0) {
@@ -596,7 +608,7 @@ export async function ensureDefaultTeam(profileId: number) {
     }
     return existing;
   }
-  // 队伍不存在：创建一支并直接编入前 4 名角色（不留下空队伍）
+  // 旧档案意外缺队时仍恢复可直接出征的队伍。
   const roster = await loadRoster(profileId);
   const picks = roster.slice(0, 4);
   const memberIds = picks.map((entry) => entry.playerCharId);
@@ -760,10 +772,25 @@ export function regionUnlockCheck(
 export async function ensureQuests(profileId: number) {
   const db = await getDb();
   if (!db) return [];
+  // 内容种子通常只在空库启动时导入；这里补入新增的新手任务，确保上线后的既有数据库也能看到它。
+  const tutorialSeed = QUEST_SEEDS.find((seed) => seed.questKey === "tutorial_keep_first_day");
+  if (tutorialSeed) {
+    const [existingTutorial] = await db.select().from(quests).where(eq(quests.questKey, tutorialSeed.questKey)).limit(1);
+    if (!existingTutorial) {
+      await db.insert(quests).values({
+        ...tutorialSeed,
+        objectives: tutorialSeed.objectives,
+        rewards: tutorialSeed.rewards,
+        prerequisite: tutorialSeed.prerequisite,
+      });
+    }
+  }
+  const [profile] = await db.select().from(gameProfiles).where(eq(gameProfiles.id, profileId)).limit(1);
+  const isV2TutorialProfile = Boolean(readTutorialProgress(profile?.settings));
   const existing = await db.select().from(profileQuests).where(eq(profileQuests.profileId, profileId));
   const existingKeys = new Set(existing.map((q) => q.questKey));
   const allQuests = await db.select().from(quests);
-  const toCreate = allQuests.filter((q) => !existingKeys.has(q.questKey));
+  const toCreate = allQuests.filter((q) => !existingKeys.has(q.questKey) && (q.questKey !== "tutorial_keep_first_day" || isV2TutorialProfile));
   if (toCreate.length > 0) {
     await db.insert(profileQuests).values(
       toCreate.map((q) => {

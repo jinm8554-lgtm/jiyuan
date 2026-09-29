@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import { PageSection } from "@/components/game/GameShell";
+import { TutorialSkip, TutorialSpotlight } from "@/components/tutorial/TutorialGuide";
 import { ELEMENT_ICON, JOB_ICON } from "@/components/game/GameIcons";
 import { PageMusic } from "@/components/game/PageMusic";
 import { ELEMENT_COLOR, ELEMENT_NAME, EmptyState, ErrorState, GoldRule, JOB_NAME, Panel, ProgressBar, SectionTitle, Tag } from "@/components/game/ui";
@@ -193,6 +194,7 @@ export default function Battle() {
 
   const node = trpc.world.node.useQuery({ nodeKey }, { enabled: Boolean(nodeKey) });
   const worldMap = trpc.world.map.useQuery(undefined, { enabled: Boolean(nodeKey) });
+  const onboarding = trpc.meta.onboarding.useQuery();
   const detail = trpc.battle.detail.useQuery({ battleId: battleId! }, { enabled: Boolean(battleId) });
 
   const start = trpc.battle.start.useMutation({
@@ -404,7 +406,7 @@ export default function Battle() {
   if (!nodeKey) {
     return (
       <>
-        <PageMusic src="/aetherfall-assets/battle-theme.mp3" storageKey="aetherfall:battle-music-muted" areaName="战斗" />
+        <PageMusic src="/aetherfall-assets/battle-theme.mp3" areaName="战斗" />
         <PageSection title="远征">
           <EmptyState title="未指定目标节点" hint="请从世界地图选择一个节点后再出征。" action={<Link href="/world"><Button className="btn-gold border-transparent text-[color:var(--ink-950)]">返回地图</Button></Link>} />
         </PageSection>
@@ -415,7 +417,7 @@ export default function Battle() {
   if (mapNode && !mapNode.unlocked && !state && !start.isPending && !start.isError) {
     return (
       <>
-        <PageMusic src="/aetherfall-assets/battle-theme.mp3" storageKey="aetherfall:battle-music-muted" areaName="战斗" />
+        <PageMusic src="/aetherfall-assets/battle-theme.mp3" areaName="战斗" />
         <PageSection title="远征">
           <EmptyState title="节点尚未解锁" hint={mapNode.lockReason ?? "请先完成前置节点或解锁条件。"} action={<Link href="/world"><Button className="btn-gold border-transparent text-[color:var(--ink-950)]">返回地图</Button></Link>} />
         </PageSection>
@@ -425,7 +427,7 @@ export default function Battle() {
 
   return (
     <>
-      <PageMusic src="/aetherfall-assets/battle-theme.mp3" storageKey="aetherfall:battle-music-muted" areaName="战斗" />
+      <PageMusic src="/aetherfall-assets/battle-theme.mp3" areaName="战斗" />
       <PageSection
       title={`远征 · ${node.data?.name ?? nodeKey}`}
       eyebrow={node.data ? `${node.data.nodeTypeLabel} · LV.${node.data.levelMin}-${node.data.levelMax} · 体力 ${node.data.staminaCost}` : "读取节点信息…"}
@@ -452,6 +454,7 @@ export default function Battle() {
         </div>
       }
     >
+      {onboarding.data?.currentKey === "first_battle" ? <TutorialSpotlight className="mb-4" targetId="tutorial-battle-command" title="完成第一场战斗" description="行动条决定先后；前排承受伤害，后排提供输出或治疗。轮到我方时可选择攻击、技能，或使用自动战斗。" /> : null}
       {start.isError ? <ErrorState className="mb-4" message={start.error?.message} onRetry={() => { startedRef.current = true; start.mutate({ nodeKey }); }} /> : null}
 
       {!state ? (
@@ -616,9 +619,10 @@ export default function Battle() {
             </Panel>
 
             {/* 指令面板 */}
-            <Panel>
+            <Panel id="tutorial-battle-command">
               <SectionTitle eyebrow="Command" title={state.finished ? "战斗结束" : awaiting ? `指挥 ${awaiting.name}` : "等待行动"} />
               <GoldRule />
+              {onboarding.data?.currentKey === "first_battle" ? <div className="mb-3 flex items-center justify-between gap-2 rounded-sm border border-[color:var(--aether-500)]/45 bg-[color:var(--ink-950)]/50 px-2.5 py-2 text-[0.66rem] text-[color:var(--aether-300)]"><span>敌人行动后，可用自动战斗完成本次教学。</span><TutorialSkip /></div> : null}
               {state.finished ? (
                 <div className="space-y-2">
                   <p className="text-sm text-[color:var(--parchment-dim)]">

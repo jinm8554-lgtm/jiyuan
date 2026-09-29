@@ -8,6 +8,7 @@ import { SKILL_BY_KEY, skillPowerAtLevel } from "../game/data/skills";
 import { createLeaderCommandState, LEADERSHIP_BY_KEY } from "../game/leadership";
 import { JOB_ROLE, MAX_LEVEL_BY_ASCENSION, round, type JobKey, type StatBlock } from "../game/formulas";
 import { advanceQuestProgress, recomputeRegionControl, syncUnlocks } from "../game/progress";
+import { completeTutorialBusinessAction } from "../game/tutorial";
 import {
   advanceToNextActor,
   autoResolve,
@@ -634,6 +635,8 @@ async function persistBattle(
       { type: "clear_node", nodeKey: node.nodeKey, regionKey: node.regionKey, firstClear: isFirstClear },
     ]);
     await syncUnlocks(profileId);
+    await completeTutorialBusinessAction(profileId, "first_battle");
+    await completeTutorialBusinessAction(profileId, "claim_battle_rewards");
     nextNode = await findNextBattleNode(profileId, node.nodeKey);
 
     const [regionRow] = await db

@@ -4,12 +4,13 @@
  */
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "wouter";
-import { Loader2, LogOut, Menu, Settings, ShieldCheck, X } from "lucide-react";
+import { Loader2, LogOut, Mail, Menu, Settings, ShieldCheck, X } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import { WelcomeRitual } from "@/components/welcome/WelcomeRitual";
+import { TutorialGuide } from "@/components/tutorial/TutorialGuide";
 import { RESOURCE_ICON, FalconCrest, BuildingIcon, CompassIcon, UsersIcon, AetherRune, HallIcon, BookIcon } from "./GameIcons";
 import { ProgressBar, ResourcePill } from "./ui";
 
@@ -63,6 +64,18 @@ function BrandMark({ compact = false }: { compact?: boolean }) {
           <span className="block truncate text-[0.62rem] uppercase tracking-[0.16em] text-[color:var(--parchment-muted)]">Aetherfall Chronicle</span>
         </span>
       ) : null}
+    </Link>
+  );
+}
+
+/** 顶栏邮箱入口：新信数量在所有游戏页面保持可见。 */
+function MailboxShortcut() {
+  const summary = trpc.mail.summary.useQuery(undefined, { refetchInterval: 60_000 });
+  const unread = summary.data?.unreadCount ?? 0;
+  return (
+    <Link href="/mailbox" aria-label={unread > 0 ? `领主邮箱，有 ${unread} 封未读信函` : "领主邮箱"} className="relative grid h-8 w-8 place-items-center rounded-sm border border-[color:var(--ink-500)]/70 text-[color:var(--parchment-dim)] transition-colors hover:border-[color:var(--gold-600)]/70 hover:text-[color:var(--gold-300)]">
+      <Mail size={15} />
+      {unread > 0 ? <span className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full border border-[color:var(--ink-950)] bg-[color:var(--ember-500)] px-1 text-[0.56rem] font-bold text-white">{unread > 9 ? "9+" : unread}</span> : null}
     </Link>
   );
 }
@@ -124,6 +137,7 @@ export function GameShell({ children }: { children: React.ReactNode }) {
             <span className="hidden text-[0.68rem] text-[color:var(--parchment-muted)] sm:block">
               {now.toLocaleDateString("zh-CN", { month: "long", day: "numeric" })} · 裂隙纪元第 7 年
             </span>
+            <MailboxShortcut />
             {isAdmin ? (
               <Link href="/gm">
                 <Button size="sm" variant="outline" className="h-8 border-[color:var(--gold-600)]/60 text-[color:var(--gold-300)]">
@@ -240,6 +254,7 @@ export function GameShell({ children }: { children: React.ReactNode }) {
       </nav>
       </div>
       <WelcomeRitual onActivityChange={setRitualActive} />
+      <TutorialGuide />
     </>
   );
 }

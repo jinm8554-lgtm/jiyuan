@@ -405,6 +405,26 @@ export const gameProfiles = mysqlTable(
 
 export type GameProfile = typeof gameProfiles.$inferSelect;
 
+/** 领主邮箱：GM 发放的通知与可领取资源，阅读和领取状态均以档案为单位保存。 */
+export const profileMails = mysqlTable(
+  "profileMails",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    profileId: int("profileId").notNull(),
+    subject: varchar("subject", { length: 120 }).notNull(),
+    content: text("content").notNull(),
+    /** 可领取资源；空对象代表纯通知。 */
+    rewards: json("rewards").$type<Record<string, number>>().notNull(),
+    sentByUserId: int("sentByUserId"),
+    readAt: timestamp("readAt"),
+    claimedAt: timestamp("claimedAt"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  (t) => [index("idx_profile_mails_inbox").on(t.profileId, t.readAt), index("idx_profile_mails_created").on(t.profileId, t.createdAt)],
+);
+
+export type ProfileMail = typeof profileMails.$inferSelect;
+
 export const playerCharacters = mysqlTable(
   "playerCharacters",
   {

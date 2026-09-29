@@ -20,6 +20,7 @@ import {
   nodeStates,
   playerCharacters,
   playerEquipments,
+  profileMails,
   profileBuildings,
   profilePity,
   profileQuests,
@@ -44,6 +45,7 @@ import { storagePut } from "../storage";
 import { ENV } from "../_core/env";
 import { adminProcedure, router } from "../_core/trpc";
 import { requireAdmin } from "./_shared";
+import { adminMailInput } from "./mail";
 
 const secretOf = () => process.env.JWT_SECRET ?? ENV.cookieSecret ?? "aetherfall-dev-secret";
 
@@ -1235,6 +1237,25 @@ export const adminRouter = router({
       };
     }),
 
+  /** 由 GM 投递玩家邮箱，可发送纯通知或附带资源的信函。 */
+  sendMail: adminProcedure.input(adminMailInput).mutation(async ({ ctx, input }) => {
+    const admin = requireAdmin(ctx);
+    const db = await getDb();
+    if (!db) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "数据库连接不可用" });
+    const [profile] = await db.select({ id: gameProfiles.id }).from(gameProfiles).where(eq(gameProfiles.id, input.profileId)).limit(1);
+    if (!profile) throw new TRPCError({ code: "NOT_FOUND", message: "档案不存在" });
+    const rewards = Object.fromEntries(Object.entries(input.rewards).filter(([, value]) => Number(value) > 0)) as Record<string, number>;
+    const [inserted] = await db.insert(profileMails).values({
+      profileId: profile.id,
+      subject: input.subject,
+      content: input.content,
+      rewards,
+      sentByUserId: admin.id,
+    }).$returningId();
+    await audit(ctx, "mail.send", "profile", String(profile.id), { subject: input.subject, rewards });
+    return { ok: true, mailId: inserted.id };
+  }),
+
   /** GM 可修正某位会员已经拥有的角色成长数据；每次更改均写入审计日志。 */
   updateMemberCharacter: adminProcedure
     .input(
@@ -1309,6 +1330,7 @@ export const adminRouter = router({
           await tx.delete(battles).where(inArray(battles.profileId, profileIds));
           await tx.delete(recruitHistories).where(inArray(recruitHistories.profileId, profileIds));
           await tx.delete(profilePity).where(inArray(profilePity.profileId, profileIds));
+          await tx.delete(profileMails).where(inArray(profileMails.profileId, profileIds));
           await tx.delete(profileStoryFlags).where(inArray(profileStoryFlags.profileId, profileIds));
           await tx.delete(profileQuests).where(inArray(profileQuests.profileId, profileIds));
           await tx.delete(nodeStates).where(inArray(nodeStates.profileId, profileIds));

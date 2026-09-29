@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { fade } from "@/audio/fade";
-import { isKeepMusicMuted, KEEP_MUSIC_VOLUME, publishRitualAudio } from "@/audio/ritualMusic";
+import { GAME_MUSIC_DEFAULT_VOLUME, useMusicMuted } from "@/audio/musicPreference";
+import { publishRitualAudio } from "@/audio/ritualMusic";
 import { Button } from "@/components/ui/button";
 import { trpc } from "@/lib/trpc";
 import { WELCOME_RITUAL_COPY, WELCOME_SCREENS } from "@/welcomeScript";
@@ -53,6 +54,7 @@ export function WelcomeRitual({
   const timers = useRef<number[]>([]);
   const fadeController = useRef<AbortController | null>(null);
   const reducedMotion = useReducedMotion();
+  const [muted] = useMusicMuted();
 
   const visible =
     isReplay ||
@@ -79,9 +81,9 @@ export function WelcomeRitual({
     if (!visible || isReplay) return;
     const audio = welcomeAudioRef.current;
     const playWelcomeMusic = () => {
-      if (!audio || isKeepMusicMuted()) return;
+      if (!audio || muted) return;
       audio.muted = false;
-      audio.volume = KEEP_MUSIC_VOLUME;
+      audio.volume = GAME_MUSIC_DEFAULT_VOLUME;
       void audio.play().catch(() => undefined);
     };
 
@@ -94,7 +96,7 @@ export function WelcomeRitual({
       window.removeEventListener("keydown", playWelcomeMusic);
       audio?.pause();
     };
-  }, [isReplay, visible]);
+  }, [isReplay, muted, visible]);
 
   useEffect(() => {
     return () => {

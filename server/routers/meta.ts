@@ -7,6 +7,7 @@ import { SET_BONUSES } from "../game/data/equipments";
 import { NODE_SEEDS, REGION_SEEDS } from "../game/data/world";
 import { ELEMENT_LABEL, JOB_LABEL, RARITY_LABEL, RESOURCE_LABEL } from "../game/formulas";
 import { loadRoster } from "../game/service";
+import { completeTutorialAction, syncTutorialProgress, TUTORIAL_STEPS } from "../game/tutorial";
 import { publicProcedure, protectedProcedure, router } from "../_core/trpc";
 import { resolveProfile } from "./_shared";
 
@@ -48,6 +49,20 @@ const LORE = {
   allAgesNote:
     "《裂隙纪元》为全年龄向作品：不含色情内容、性奴役、色情服装或身体羞辱。全部角色以冒险者、骑士、法师、领主、学者、工匠等正向身份登场，亲密表达限于友情、同伴信任、家族羁绊、骑士精神与轻度恋爱。",
 };
+
+const TUTORIAL_COPY = {
+  welcome_keep: { label: "巡视灰隼堡", hint: "先看看你继承的建筑与物资。", href: "/keep" },
+  inspect_keep: { label: "认识灰隼堡主城", hint: "查看建筑和资源，了解领地的发展基础。", href: "/keep" },
+  build_wall: { label: "修复南墙", hint: "城墙升级完成后，灰隼堡才能拥有第一项防御加成。", href: "/keep" },
+  finish_wall: { label: "结算南墙施工", hint: "让灰隼堡正式获得这项防御加成。", href: "/keep" },
+  form_expedition: { label: "编成第一支远征队", hint: "至少安排一名同伴进入队伍并保存编成。", href: "/roster" },
+  enter_world: { label: "前往灰隼堡外郊", hint: "在世界地图查看第一个可探索节点。", href: "/world" },
+  first_battle: { label: "完成第一场战斗", hint: "可手动战斗，也可在合适时使用自动战斗。", href: "/world" },
+  claim_battle_rewards: { label: "查看第一次远征收获", hint: "战利品已经由远征结算写入档案。", href: "/keep" },
+  council_talk: { label: "在议事厅听取意见", hint: "与至少一名同伴完成一次会谈。", href: "/council" },
+  first_recruit: { label: "完成一次普通招募", hint: "普通招募的概率与消耗均在招募页公开。", href: "/recruit" },
+  tutorial_complete: { label: "灰隼堡的第一天", hint: "第一条远征循环已经完成。", href: "/keep" },
+} as const;
 
 export const metaRouter = router({
   /** 世界观百科（无需登录即可阅读） */
@@ -97,25 +112,24 @@ export const metaRouter = router({
   onboarding: protectedProcedure.query(async ({ ctx }) => {
     const profile = await resolveProfile(ctx);
     const db = await getDb();
-    const roster = await loadRoster(profile.id);
+    const tutorial = await syncTutorialProgress(profile.id);
     const [profileRow] = db ? await db.select().from(gameProfiles).where(eq(gameProfiles.id, profile.id)).limit(1) : [];
     const regions = db ? await db.select().from(regionStates).where(eq(regionStates.profileId, profile.id)) : [];
     const owned = db ? await db.select().from(playerCharacters).where(eq(playerCharacters.profileId, profile.id)) : [];
-
-    const steps = [
-      { id: "keep", label: "进入灰隼堡主城", done: true, hint: "查看建筑、资源与议事厅待办。" },
-      { id: "build", label: "建造第一座建筑（建议：城墙）", done: false, hint: "城墙提升全队减伤与资源上限。" },
-      { id: "team", label: "编成远征队", done: roster.length > 0, hint: "队伍最多 4 人，前排承担更多伤害。" },
-      { id: "battle", label: "完成第一场战斗", done: false, hint: "在世界地图中选择「灰隼堡外郊」。" },
-      { id: "ai", label: "在议事厅与同伴对话", done: false, hint: "AI 只会扮演你选中的在场角色。" },
-      { id: "recruit", label: "进行一次招募", done: (profileRow?.aether ?? 0) < 1800, hint: "普通招募消耗星辉，保底进度服务端记录。" },
-    ];
+    const completed = new Set(tutorial?.completedKeys ?? []);
+    const steps = TUTORIAL_STEPS.map((key) => ({ id: key, ...TUTORIAL_COPY[key], done: Boolean(tutorial?.skipped || completed.has(key)) }));
+    const nextStep = tutorial && !tutorial.skipped ? { key: tutorial.currentKey, ...TUTORIAL_COPY[tutorial.currentKey] } : null;
 
     return {
       tutorialStep: profileRow?.tutorialStep ?? 0,
+      tutorialVersion: tutorial?.version ?? null,
+      skipped: tutorial?.skipped ?? true,
+      currentKey: tutorial?.currentKey ?? null,
+      completedKeys: tutorial?.completedKeys ?? [],
       chapter: profileRow?.chapter ?? 1,
       targets: profileRow?.settings && typeof (profileRow.settings as Record<string, unknown>).targets === "object" ? (profileRow.settings as Record<string, unknown>).targets : null,
       steps,
+      nextStep,
       summary: {
         characterCount: owned.length,
         regionUnlocked: regions.filter((region) => region.unlocked).length,
@@ -124,6 +138,15 @@ export const metaRouter = router({
       },
     };
   }),
+
+  /** 仅记录可由界面完成的引导行为；游戏业务步骤由各自 router 在落库后推进。 */
+  completeTutorialAction: protectedProcedure
+    .input(z.object({ action: z.enum(["dismiss_welcome", "inspect_keep", "enter_world", "skip_tutorial"]) }))
+    .mutation(async ({ ctx, input }) => {
+      const profile = await resolveProfile(ctx);
+      const tutorial = await completeTutorialAction(profile.id, input.action);
+      return { ok: Boolean(tutorial), tutorial };
+    }),
 
   /** 更新引导进度（仅推进，不回退） */
   setOnboardingStep: protectedProcedure.input(z.object({ step: z.number().int().min(0).max(20) })).mutation(async ({ ctx, input }) => {

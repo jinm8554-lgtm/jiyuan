@@ -8,6 +8,7 @@ import { useLocation } from "wouter";
 import { toast } from "sonner";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { startLogin } from "@/const";
+import { useMusicMuted } from "@/audio/musicPreference";
 import { trpc } from "@/lib/trpc";
 
 const isLocalAuth = import.meta.env.VITE_LOCAL_AUTH_ENABLED === "true";
@@ -19,7 +20,7 @@ export default function Landing() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [backgroundLoaded, setBackgroundLoaded] = useState(false);
-  const [isMuted, setIsMuted] = useState(false);
+  const [isMuted, setIsMuted] = useMusicMuted();
   const [isMusicPlaying, setIsMusicPlaying] = useState(false);
   const musicRef = useRef<HTMLAudioElement>(null);
   const login = trpc.auth.localLogin.useMutation({
@@ -57,11 +58,19 @@ export default function Landing() {
     if (!music) return;
 
     const retryAfterUserGesture = () => {
+      if (isMuted) return;
       music.muted = false;
       void music.play()
         .then(() => setIsMusicPlaying(true))
         .catch(() => setIsMusicPlaying(false));
     };
+
+    if (isMuted) {
+      music.muted = true;
+      music.pause();
+      setIsMusicPlaying(false);
+      return;
+    }
 
     music.muted = false;
     music.volume = 0.3;
@@ -79,15 +88,15 @@ export default function Landing() {
       window.removeEventListener("pointerdown", retryAfterUserGesture);
       window.removeEventListener("keydown", retryAfterUserGesture);
     };
-  }, []);
+  }, [isMuted]);
 
   const toggleMusic = async () => {
     const music = musicRef.current;
     if (!music) return;
 
-    if (!isMusicPlaying) {
-      music.muted = false;
+    if (isMuted || !isMusicPlaying) {
       setIsMuted(false);
+      music.muted = false;
       try {
         await music.play();
         setIsMusicPlaying(true);
@@ -97,9 +106,10 @@ export default function Landing() {
       return;
     }
 
-    const nextMuted = !music.muted;
-    music.muted = nextMuted;
-    setIsMuted(nextMuted);
+    music.muted = true;
+    music.pause();
+    setIsMusicPlaying(false);
+    setIsMuted(true);
   };
 
   return (

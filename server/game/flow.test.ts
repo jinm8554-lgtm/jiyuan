@@ -13,8 +13,9 @@ import { and, eq, inArray } from "drizzle-orm";
 import { appRouter } from "../routers";
 import { getDb } from "../db";
 import type { TrpcContext } from "../_core/context";
-import { battles, characters, gameProfiles, nodeStates, playerCharacters, playerEquipments, profileBuildings, regionStates, teams, users } from "../../drizzle/schema";
+import { battles, characters, gameProfiles, nodeStates, playerCharacters, playerEquipments, profileBuildings, profileMails, regionStates, teams, users } from "../../drizzle/schema";
 import { accrueProfile } from "../game/service";
+import { TUTORIAL_STEPS } from "../game/tutorial";
 
 const TEST_OPEN_ID = "vitest-flow-user";
 const ADMIN_OPEN_ID = "vitest-flow-admin";
@@ -46,6 +47,7 @@ flowDescribe("核心流程：从建档到征服", () => {
     const profiles = await db.select({ id: gameProfiles.id }).from(gameProfiles).where(inArray(gameProfiles.userId, userIds));
     const ids = profiles.map((row) => row.id);
     if (ids.length > 0) {
+      await db.delete(profileMails).where(inArray(profileMails.profileId, ids));
       await db.delete(playerCharacters).where(inArray(playerCharacters.profileId, ids));
       await db.delete(profileBuildings).where(inArray(profileBuildings.profileId, ids));
       await db.delete(gameProfiles).where(inArray(gameProfiles.id, ids));
@@ -85,12 +87,16 @@ flowDescribe("核心流程：从建档到征服", () => {
     await purge(ids);
   }, 60_000);
 
-  it("1. 首次进入自动建档：新手队伍、初始建筑、任务与待办全部下发", async () => {
+  it("1. 首次进入自动建档：教程状态、初始建筑、任务与待办全部下发", async () => {
     const home = await player.keep.home();
     expect(home.lord.name.length).toBeGreaterThan(0);
     expect(home.lord.level).toBeGreaterThanOrEqual(1);
     expect(home.resources.gold).toBeGreaterThan(0);
     expect(home.resources.aether).toBe(1800);
+    expect(home.resources.gold).toBe(2000);
+    expect(home.resources.food).toBe(2000);
+    expect(home.resources.wood).toBe(2000);
+    expect(home.resources.iron).toBe(2000);
     // 起步不空手：至少 2 名初始角色
     expect(home.totalCharacters).toBeGreaterThanOrEqual(2);
     expect(home.roster.length).toBeGreaterThanOrEqual(2);
@@ -105,6 +111,22 @@ flowDescribe("核心流程：从建档到征服", () => {
     const profiles = await db.select({ id: gameProfiles.id }).from(gameProfiles).where(eq(gameProfiles.userId, playerUserId));
     profileId = profiles[0].id;
     expect(profileId).toBeGreaterThan(0);
+    const onboarding = await player.meta.onboarding();
+    expect(onboarding).toMatchObject({ tutorialVersion: 2, skipped: false, currentKey: "welcome_keep" });
+    // 新手档案从可编辑的空远征队起步，不能把“自动编队”误判为教程已完成。
+    expect(home.team?.memberIds).toEqual([]);
+  }, 60_000);
+
+  it("1a. 跳过教程只写服务端跳过标记，不发放资源，重复请求保持幂等", async () => {
+    const [before] = await db.select({ gold: gameProfiles.gold, food: gameProfiles.food, wood: gameProfiles.wood, iron: gameProfiles.iron, aether: gameProfiles.aether }).from(gameProfiles).where(eq(gameProfiles.id, profileId)).limit(1);
+    const once = await player.meta.completeTutorialAction({ action: "skip_tutorial" });
+    const twice = await player.meta.completeTutorialAction({ action: "skip_tutorial" });
+    const [after] = await db.select({ gold: gameProfiles.gold, food: gameProfiles.food, wood: gameProfiles.wood, iron: gameProfiles.iron, aether: gameProfiles.aether }).from(gameProfiles).where(eq(gameProfiles.id, profileId)).limit(1);
+    expect(once.tutorial?.skipped).toBe(true);
+    expect(twice.tutorial?.currentKey).toBe("tutorial_complete");
+    expect(after).toEqual(before);
+    const onboarding = await player.meta.onboarding();
+    expect(onboarding.tutorialStep).toBeGreaterThanOrEqual(TUTORIAL_STEPS.length);
   }, 60_000);
 
   async function resetIntro() {
@@ -218,8 +240,9 @@ flowDescribe("核心流程：从建档到征服", () => {
     expect(Math.abs(saved.lastTickAt.getTime() - now.getTime())).toBeLessThanOrEqual(1000);
   }, 60_000);
 
-  it("1b. 队伍自愈：即使队伍被清空，主城与远征都会自动补入角色（防「队伍中没有角色」）", async () => {
-    // 模拟历史脏数据：把队伍成员清空
+  it("1b. 旧档案队伍自愈：历史空队伍仍会自动补入角色", async () => {
+    // 模拟没有 v2 标识的历史档案；新档案必须在同伴页由玩家保存编成。
+    await db.update(gameProfiles).set({ settings: {} }).where(eq(gameProfiles.id, profileId));
     await db.update(teams).set({ memberIds: [], formation: {} }).where(eq(teams.profileId, profileId));
     const home = await player.keep.home();
     expect(home.team?.memberIds.length).toBeGreaterThan(0);
@@ -475,6 +498,18 @@ flowDescribe("核心流程：从建档到征服", () => {
     expect(home.resources.stamina).toBeLessThanOrEqual(home.resources.staminaMax);
   }, 120_000);
 
+  it("7a. 普通领主每日可重置一次体力，第二次由服务端拒绝", async () => {
+    await db.update(gameProfiles).set({ stamina: 0, membershipDayKey: "", staminaResetUses: 0 }).where(eq(gameProfiles.id, profileId));
+    const initial = await player.world.map();
+    expect(initial.summary.membership.active).toBe(false);
+    expect(initial.summary.membership.staminaResetRemaining).toBe(1);
+    await player.world.resetStamina();
+    const after = await player.keep.home();
+    expect(after.resources.stamina).toBe(after.resources.staminaMax);
+    await expect(player.world.resetStamina()).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await db.update(gameProfiles).set({ membershipDayKey: "", staminaResetUses: 0 }).where(eq(gameProfiles.id, profileId));
+  }, 60_000);
+
   it("7b. 会员权益：每日体力重置、商队 8 小时速收与自动续派由服务端限次", async () => {
     await db.update(users).set({ membership: "supporter", membershipExpiresAt: new Date(Date.now() + 7 * 24 * 3600_000) }).where(eq(users.id, playerUserId));
     try {
@@ -504,6 +539,30 @@ flowDescribe("核心流程：从建档到征服", () => {
       await db.update(users).set({ membership: "free", membershipExpiresAt: null }).where(eq(users.id, playerUserId));
     }
   }, 90_000);
+
+  it("7bb. 邮箱信函可提示未读、阅读并且仅领取一次附带资源", async () => {
+    const sent = await admin.admin.sendMail({
+      profileId,
+      subject: "测试补给已抵达",
+      content: "请由领主亲自验收这批边境补给。",
+      rewards: { renown: 7, aether: 3 },
+    });
+    expect(sent.mailId).toBeGreaterThan(0);
+    expect((await player.mail.summary()).unreadCount).toBe(1);
+
+    const inbox = await player.mail.list();
+    const letter = inbox.find((item) => item.id === sent.mailId)!;
+    expect(letter.readAt).toBeNull();
+    expect(letter.hasRewards).toBe(true);
+
+    await player.mail.read({ mailId: sent.mailId });
+    expect((await player.mail.summary()).unreadCount).toBe(0);
+    const before = await player.keep.home();
+    await player.mail.claim({ mailId: sent.mailId });
+    const after = await player.keep.home();
+    expect(after.resources.renown).toBe(before.resources.renown + 7);
+    await expect(player.mail.claim({ mailId: sent.mailId })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  }, 60_000);
 
   it("7c. 预备部队：兵营 2 级解锁第二队，首队战败后可接续残血敌人且只能使用一次", async () => {
     const [barracks] = await db.select().from(profileBuildings).where(and(eq(profileBuildings.profileId, profileId), eq(profileBuildings.buildingKey, "barracks"))).limit(1);
@@ -618,6 +677,21 @@ flowDescribe("核心流程：从建档到征服", () => {
 
     // 选择真实在场角色后，发言者必须严格来自在场名单
     const selected = ownedKeys.slice(0, 2);
+
+    // 教程会谈即使外部 AI 配置/额度不可用，也必须以本地角色回应落库，且不消耗议事额度。
+    const tutorialKeys = ["welcome_keep", "inspect_keep", "build_wall", "finish_wall", "form_expedition", "enter_world", "first_battle", "claim_battle_rewards"];
+    await db.update(gameProfiles).set({
+      tutorialStep: tutorialKeys.length,
+      settings: { tutorial: { version: 2, skipped: false, currentKey: "council_talk", completedKeys: tutorialKeys, dismissedHints: [], lastSeenAt: Date.now() } },
+    }).where(eq(gameProfiles.id, profileId));
+    const quotaBefore = (await player.ai.cast()).councilQuota.used;
+    const tutorialSession = await player.ai.openConversation({ scene: "council", presentKeys: selected });
+    const localTalk = await player.ai.talk({ conversationId: tutorialSession.conversationId, message: "灰隼堡接下来最应该优先修复什么？", presentKeys: selected, tutorialFallback: true });
+    expect(localTalk.status).toBe("fallback");
+    expect((await player.ai.cast()).councilQuota.used).toBe(quotaBefore);
+    const localHistory = await player.ai.conversation({ conversationId: tutorialSession.conversationId });
+    expect(localHistory.messages.some((message) => message.source === "fallback")).toBe(true);
+
     const session = await player.ai.openConversation({ scene: "campfire", presentKeys: selected });
     const talk = await player.ai.talk({ conversationId: session.conversationId, message: "聊聊各自的过去吧。" });
     expect(talk.status).not.toBe("no_present_characters");

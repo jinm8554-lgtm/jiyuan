@@ -22,6 +22,23 @@ const scaleAether = (values: Record<string, unknown>, divisor: number) => {
 const q = (v: QuestSeed): QuestSeed => ({ ...v, rewards: scaleAether(v.rewards, 2) });
 
 export const QUEST_SEEDS: QuestSeed[] = [
+  {
+    questKey: "tutorial_keep_first_day",
+    name: "灰隼堡的第一天",
+    chapter: 1,
+    questType: "main",
+    description: "修好第一段城墙，组建远征队，并让灰隼堡重新点亮第一盏灯。",
+    objectives: [
+      { type: "upgrade_building", buildingKey: "wall", level: 1, count: 1, label: "修复南墙" },
+      { type: "form_team", count: 1, label: "编成远征队" },
+      { type: "clear_node", nodeKey: "sp_keep_road", count: 1, label: "完成灰隼堡外郊远征" },
+      { type: "talk_ai", count: 1, label: "与同伴进行一次议事" },
+      { type: "recruit", count: 1, label: "完成一次招募" },
+    ],
+    rewards: { gold: 300, wood: 180, iron: 80, food: 180, aether: 100 },
+    prerequisite: {},
+    sortOrder: 0,
+  },
   q({
     questKey: "mq_ch1_01",
     name: "第一章 · 灰隼堡的第七个冬天",

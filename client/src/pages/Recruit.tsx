@@ -3,7 +3,7 @@
  * 要点：概率与保底公示（数据来自服务端配置）、十连保底、重复转化为信物、招募历史
  * 所有随机结果由服务端生成，前端仅展示与动画
  */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Coins, History, Info, Sparkles, Star } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import { PageSection } from "@/components/game/GameShell";
+import { TutorialSkip, TutorialSpotlight } from "@/components/tutorial/TutorialGuide";
 import { AetherRune } from "@/components/game/GameIcons";
 import { PageMusic } from "@/components/game/PageMusic";
 import { Avatar, EmptyState, ErrorState, GoldRule, Panel, ProgressBar, RarityBadge, SectionTitle, SkeletonState, Tag } from "@/components/game/ui";
@@ -36,6 +37,7 @@ export default function Recruit() {
   const history = trpc.recruit.history.useQuery({ limit: 50 });
   const shop = trpc.recruit.exchangeShop.useQuery();
   const resources = trpc.keep.resources.useQuery();
+  const onboarding = trpc.meta.onboarding.useQuery();
 
   const [activePool, setActivePool] = useState<string | null>(null);
   const [results, setResults] = useState<DrawResult[]>([]);
@@ -44,6 +46,10 @@ export default function Recruit() {
 
   const pool = useMemo(() => pools.data?.find((item) => item.poolKey === activePool) ?? pools.data?.[0] ?? null, [pools.data, activePool]);
   const rates = trpc.recruit.rates.useQuery({ poolKey: ratePool ?? "" }, { enabled: Boolean(ratePool) });
+  useEffect(() => {
+    if (onboarding.data?.currentKey !== "first_recruit" || activePool || !pools.data) return;
+    setActivePool(pools.data.find((item) => item.poolType === "normal")?.poolKey ?? pools.data[0]?.poolKey ?? null);
+  }, [activePool, onboarding.data?.currentKey, pools.data]);
 
   const draw = trpc.recruit.draw.useMutation({
     onSuccess: async (result) => {
@@ -56,6 +62,7 @@ export default function Recruit() {
         utils.keep.resources.invalidate(),
         utils.keep.home.invalidate(),
         utils.character.roster.invalidate(),
+        utils.meta.onboarding.invalidate(),
       ]);
     },
     onError: (error) => toast.error("抽取失败", { description: error.message }),
@@ -72,7 +79,7 @@ export default function Recruit() {
   if (pools.isLoading) {
     return (
       <>
-        <PageMusic src="/aetherfall-assets/recruit-theme.mp3" storageKey="aetherfall:recruit-music-muted" areaName="招募" />
+        <PageMusic src="/aetherfall-assets/recruit-theme.mp3" areaName="招募" />
         <PageSection title="招募">
           <SkeletonState rows={4} />
         </PageSection>
@@ -83,7 +90,7 @@ export default function Recruit() {
   if (pools.isError || !pools.data) {
     return (
       <>
-        <PageMusic src="/aetherfall-assets/recruit-theme.mp3" storageKey="aetherfall:recruit-music-muted" areaName="招募" />
+        <PageMusic src="/aetherfall-assets/recruit-theme.mp3" areaName="招募" />
         <PageSection title="招募">
           <ErrorState message={pools.error?.message ?? "卡池读取失败"} onRetry={() => pools.refetch()} />
         </PageSection>
@@ -96,7 +103,7 @@ export default function Recruit() {
 
   return (
     <>
-      <PageMusic src="/aetherfall-assets/recruit-theme.mp3" storageKey="aetherfall:recruit-music-muted" areaName="招募" />
+      <PageMusic src="/aetherfall-assets/recruit-theme.mp3" areaName="招募" />
       <PageSection
       title="招募 · 星辉誓约"
       eyebrow="概率与保底由服务端配置统一管理，客户端无法修改"
@@ -107,11 +114,13 @@ export default function Recruit() {
         </div>
       }
     >
+      {onboarding.data?.currentKey === "first_recruit" ? <TutorialSpotlight className="mb-4" targetId="tutorial-normal-recruit" title="完成一次普通招募" description="普通招募的消耗、概率与保底均在这里公开；结果将由服务端写入招募历史。" /> : null}
       {/* 卡池选择 */}
       <div className="mb-4 grid gap-2 sm:grid-cols-3">
         {pools.data.map((item) => (
           <button
             key={item.poolKey}
+            id={item.poolType === "normal" ? "tutorial-normal-recruit" : undefined}
             onClick={() => setActivePool(item.poolKey)}
             className={cn(
               "card-tap rounded-sm border p-3 text-left",
@@ -186,6 +195,7 @@ export default function Recruit() {
 
                   {/* 抽取按钮 */}
                   <div className="flex flex-wrap gap-2">
+                    {onboarding.data?.currentKey === "first_recruit" ? <TutorialSkip /> : null}
                     <Button
                       data-testid="recruit-single-draw"
                       className="btn-gold border-transparent text-[color:var(--ink-950)]"

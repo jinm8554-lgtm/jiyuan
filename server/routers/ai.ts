@@ -14,6 +14,7 @@ import {
   leadershipDayKey,
 } from "../game/leadership";
 import { advanceQuestProgress } from "../game/progress";
+import { completeTutorialBusinessAction, syncTutorialProgress } from "../game/tutorial";
 import { getMembershipBenefits, loadRoster } from "../game/service";
 import { ENV } from "../_core/env";
 import { protectedProcedure, router } from "../_core/trpc";
@@ -357,6 +358,7 @@ export const aiRouter = router({
         message: z.string().min(1).max(500),
         activeCharKey: z.string().max(64).nullable().optional(),
         presentKeys: z.array(z.string().min(1).max(64)).max(4).optional(),
+        tutorialFallback: z.boolean().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -424,8 +426,10 @@ export const aiRouter = router({
         };
       });
 
-      // 所有输入与名册校验完成后才扣次数，避免无效操作消耗 AI 额度。
-      const councilQuotaAfter = await consumeCouncilQuota(profile.id);
+      // 新手第一次议事可由服务端强制使用本地回应：不扣 AI 额度，也照常保存会谈与羁绊。
+      const tutorial = input.tutorialFallback ? await syncTutorialProgress(profile.id) : null;
+      const useTutorialFallback = input.tutorialFallback === true && tutorial?.currentKey === "council_talk" && !tutorial.skipped;
+      const councilQuotaAfter = useTutorialFallback ? await councilQuota(profile.id) : await consumeCouncilQuota(profile.id);
 
       const history = await db
         .select()
@@ -447,23 +451,28 @@ export const aiRouter = router({
 
       const config = await loadRuntimeConfig();
       const started = Date.now();
-      const result = await generateCharacterTurns({
-        config,
+      const fallback = () => fallbackTurns({
         present,
-        scene: conversation.sceneKey as SceneKey,
-        playerMessage: input.message,
         activeCharKey: input.activeCharKey ?? null,
-        history: history.map((msg) => ({ role: msg.role, charKey: msg.charKey, content: msg.content })),
-        turnCount: conversation.turnCount,
-        fallback: () =>
-          fallbackTurns({
-            present,
-            activeCharKey: input.activeCharKey ?? null,
-            playerMessage: input.message,
-            scene: conversation.sceneKey as SceneKey,
-            seed: conversation.turnCount + input.message.length,
-          }),
+        playerMessage: input.message,
+        scene: conversation.sceneKey as SceneKey,
+        seed: conversation.turnCount + input.message.length,
       });
+      const result = useTutorialFallback
+        ? {
+          output: fallback(), status: "fallback" as const, model: "本地角色回应", httpStatus: null,
+          latencyMs: 0, promptTokens: 0, completionTokens: 0, violations: [], rejectedTurns: [], errorMessage: null,
+        }
+        : await generateCharacterTurns({
+          config,
+          present,
+          scene: conversation.sceneKey as SceneKey,
+          playerMessage: input.message,
+          activeCharKey: input.activeCharKey ?? null,
+          history: history.map((msg) => ({ role: msg.role, charKey: msg.charKey, content: msg.content })),
+          turnCount: conversation.turnCount,
+          fallback,
+        });
 
       const output: AiOutput = result.output;
       const savedTurns: Array<Record<string, unknown>> = [];
@@ -553,6 +562,7 @@ export const aiRouter = router({
       });
 
       await advanceQuestProgress(profile.id, [{ type: "talk_ai", charKey: input.activeCharKey ?? null }]);
+      await completeTutorialBusinessAction(profile.id, "council_talk");
 
       const leaderReward = savedTurns.length > 0
         ? await awardLeaderPower(profile.id)

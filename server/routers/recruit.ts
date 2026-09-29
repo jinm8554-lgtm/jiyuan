@@ -5,6 +5,7 @@ import { characters, gameProfiles, profilePity, recruitHistories, recruitPools }
 import { getDb } from "../db";
 import { RARITY_LABEL, round } from "../game/formulas";
 import { advanceQuestProgress } from "../game/progress";
+import { completeTutorialBusinessAction } from "../game/tutorial";
 import { drawMany, isPoolOpen, normalizeRates, pityProgress, totalCost, type PityState, type PoolConfig } from "../game/recruit";
 import { grantCharacter, grantEquipment, spendRecruitShards } from "../game/service";
 import { protectedProcedure, router } from "../_core/trpc";
@@ -271,6 +272,8 @@ export const recruitRouter = router({
           guaranteedSSR: pity.guaranteedSSR,
         })
         .where(and(eq(profilePity.profileId, profile.id), eq(profilePity.poolKey, input.poolKey)));
+
+      await completeTutorialBusinessAction(profile.id, "first_recruit");
 
       const profileRow = (await db.select().from(gameProfiles).where(eq(gameProfiles.id, profile.id)).limit(1))[0];
       const highRarityCount = output.filter((item) => item.rarity !== "R").length;

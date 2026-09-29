@@ -56,7 +56,7 @@ export default function Chronicle() {
   if (lore.isLoading) {
     return (
       <>
-        <PageMusic src="/aetherfall-assets/chronicle-theme.mp3" storageKey="aetherfall:chronicle-music-muted" areaName="编年史" />
+        <PageMusic src="/aetherfall-assets/chronicle-theme.mp3" areaName="编年史" />
         <PageSection title="编年史">
           <SkeletonState rows={5} />
         </PageSection>
@@ -67,7 +67,7 @@ export default function Chronicle() {
   if (lore.isError || !lore.data) {
     return (
       <>
-        <PageMusic src="/aetherfall-assets/chronicle-theme.mp3" storageKey="aetherfall:chronicle-music-muted" areaName="编年史" />
+        <PageMusic src="/aetherfall-assets/chronicle-theme.mp3" areaName="编年史" />
         <PageSection title="编年史">
           <ErrorState message={lore.error?.message ?? "世界观读取失败"} onRetry={() => lore.refetch()} />
         </PageSection>
@@ -83,7 +83,7 @@ export default function Chronicle() {
 
   return (
     <>
-      <PageMusic src="/aetherfall-assets/chronicle-theme.mp3" storageKey="aetherfall:chronicle-music-muted" areaName="编年史" />
+      <PageMusic src="/aetherfall-assets/chronicle-theme.mp3" areaName="编年史" />
       <PageSection
       title="编年史"
       eyebrow={`${data.world} · ${data.era}`}

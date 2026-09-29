@@ -1,26 +1,20 @@
 import { useEffect, useRef, useState } from "react";
 import { Volume2, VolumeX } from "lucide-react";
 import { fade } from "@/audio/fade";
+import { useMusicMuted } from "@/audio/musicPreference";
 import { RITUAL_AUDIO_EVENT, type RitualAudioDetail } from "@/audio/ritualMusic";
 
 type PageMusicProps = {
   src: string;
-  storageKey: string;
   areaName: string;
   volume?: number;
 };
 
-/** 页面环境音乐；离开页面时停止播放，并记住各页面独立的静音设置。 */
-export function PageMusic({ src, storageKey, areaName, volume = 0.25 }: PageMusicProps) {
+/** 页面环境音乐；所有区域共用同一个静音偏好，并在浏览器缓存中保留。 */
+export function PageMusic({ src, areaName, volume = 0.25 }: PageMusicProps) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const pausedForRitual = useRef(false);
-  const [muted, setMuted] = useState(() => {
-    try {
-      return window.localStorage.getItem(storageKey) === "true";
-    } catch {
-      return false;
-    }
-  });
+  const [muted, setMuted] = useMusicMuted();
   const [isPlaying, setIsPlaying] = useState(false);
 
   useEffect(() => {
@@ -84,18 +78,14 @@ export function PageMusic({ src, storageKey, areaName, volume = 0.25 }: PageMusi
   }, [muted, src, volume]);
 
   const toggleMuted = () => {
-    const nextMuted = !muted;
-    setMuted(nextMuted);
-    try {
-      window.localStorage.setItem(storageKey, String(nextMuted));
-    } catch {}
+    setMuted(!muted);
   };
 
   const buttonLabel = muted
-    ? `开启${areaName}音乐`
+    ? "开启全局音乐"
     : isPlaying
-      ? `静音${areaName}音乐`
-      : `${areaName}音乐已开启，首次交互后自动播放`;
+      ? `静音全局音乐（当前：${areaName}）`
+      : `全局音乐已开启，首次交互后自动播放`;
 
   return (
     <>

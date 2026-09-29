@@ -15,6 +15,7 @@ import CharacterDetail from "./pages/CharacterDetail";
 import Recruit from "./pages/Recruit";
 import Council from "./pages/Council";
 import Chronicle from "./pages/Chronicle";
+import Mailbox from "./pages/Mailbox";
 import GMOverview from "./pages/gm/GMOverview";
 import GMCharacters from "./pages/gm/GMCharacters";
 import GMPools from "./pages/gm/GMPools";
@@ -81,6 +82,11 @@ function Router() {
       <Route path={"/chronicle"}>
         <GameRoute>
           <Chronicle />
+        </GameRoute>
+      </Route>
+      <Route path={"/mailbox"}>
+        <GameRoute>
+          <Mailbox />
         </GameRoute>
       </Route>
 

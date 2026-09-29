@@ -8,6 +8,7 @@ import { EVENT_SEEDS } from "../game/data/quests";
 import { NODE_SEEDS, REGION_SEEDS } from "../game/data/world";
 import { buildingUpgradeCost, resourceCap, round } from "../game/formulas";
 import { advanceQuestProgress, claimQuestReward, recomputeRegionControl, syncUnlocks } from "../game/progress";
+import { completeTutorialBusinessAction, readTutorialProgress } from "../game/tutorial";
 import {
   accrueProfile,
   addResources,
@@ -15,6 +16,7 @@ import {
   ensureDefaultTeam,
   ensureUnlockedTeams,
   ensureQuests,
+  getMembershipBenefits,
   getStoryFlags,
   keepBonus,
   loadBuildings,
@@ -53,10 +55,7 @@ export const keepRouter = router({
     const buildings = await loadBuildings(profile.id);
     const views = buildingView(buildings);
     const roster = await loadRoster(profile.id);
-    /**
-     * 使用自愈式取队：若队伍缺失或为空，会自动编入前 4 名角色，
-     * 避免玩家进入远征时看到「队伍中没有角色」。
-     */
+    /** 旧档案仍会自愈；v2 新手档案在同伴页保存第一支远征队。 */
     const activeTeam = await ensureDefaultTeam(profile.id);
 
     const questRows = await ensureQuests(profile.id);
@@ -125,6 +124,7 @@ export const keepRouter = router({
     }
 
     const bonus = await keepBonus(profile.id);
+    const membership = await getMembershipBenefits(profile.id);
     const marketLevel = buildings.find((b) => b.buildingKey === "market")?.level ?? 0;
     const flags = await getStoryFlags(profile.id);
 
@@ -150,6 +150,7 @@ export const keepRouter = router({
         staminaMax: current.staminaMax,
         cap: resourceCap(current.keepLevel, marketLevel),
       },
+      membership,
       accrual: { gains: accrual.gains, secondsElapsed: accrual.secondsElapsed, staminaRecovered: accrual.staminaRecovered },
       buildings: views,
       bonus,
@@ -245,7 +246,11 @@ export const keepRouter = router({
       }
       void now;
 
-      const doneAt = input.instant ? new Date() : new Date(Date.now() + upgrade.seconds * 1000);
+      const tutorial = readTutorialProgress(profile.settings);
+      const isTutorialWall = input.buildingKey === "wall" && tutorial?.currentKey === "build_wall" && !tutorial.skipped;
+      // 教学施工时间由服务端根据当前存档判定，客户端不能伪造。
+      const seconds = input.instant ? 0 : isTutorialWall ? 4 : upgrade.seconds;
+      const doneAt = input.instant ? new Date() : new Date(Date.now() + seconds * 1000);
       if (row) {
         await db.update(profileBuildings).set({ upgradingTo: targetLevel, upgradeDoneAt: doneAt }).where(eq(profileBuildings.id, row.id));
       } else {
@@ -260,12 +265,13 @@ export const keepRouter = router({
       const progress = await advanceQuestProgress(profile.id, [
         { type: "upgrade_building", buildingKey: input.buildingKey, level: targetLevel },
       ]);
+      if (input.buildingKey === "wall") await completeTutorialBusinessAction(profile.id, "build_wall");
 
       return {
         ok: true,
         buildingKey: input.buildingKey,
         upgradingTo: targetLevel,
-        seconds: upgrade.seconds,
+        seconds,
         doneAt,
         cost: upgrade.cost,
         questUpdates: progress.updated,
@@ -286,6 +292,7 @@ export const keepRouter = router({
       await syncUnlocks(profile.id);
       for (const row of finished) {
         await advanceQuestProgress(profile.id, [{ type: "upgrade_building", buildingKey: row.buildingKey, level: row.level }]);
+        if (row.buildingKey === "wall") await completeTutorialBusinessAction(profile.id, "finish_wall");
       }
     }
     return { ok: true, finished: finished.map((row) => ({ buildingKey: row.buildingKey, level: row.level })) };
@@ -554,6 +561,9 @@ export const keepRouter = router({
       }
 
       const unique = Array.from(new Set(input.memberIds)).slice(0, 4);
+      if (team.isActive && unique.length === 0) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "远征队至少需要一名同伴" });
+      }
       await db
         .update(teams)
         .set({
@@ -562,6 +572,11 @@ export const keepRouter = router({
           name: input.name ?? team.name,
         })
         .where(eq(teams.id, team.id));
+
+      if (team.isActive && unique.length > 0) {
+        await advanceQuestProgress(profile.id, [{ type: "form_team", memberCount: unique.length }]);
+        await completeTutorialBusinessAction(profile.id, "form_expedition");
+      }
 
       return { ok: true, memberIds: unique };
     }),

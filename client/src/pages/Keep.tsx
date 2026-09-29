@@ -6,12 +6,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "wouter";
 import { toast } from "sonner";
-import { ArrowRight, CheckCircle2, Coins, Hammer, ScrollText, Swords, Timer, Users } from "lucide-react";
+import { ArrowRight, CheckCircle2, Coins, Hammer, Mail, RefreshCw, ScrollText, Swords, Timer, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import { PageSection } from "@/components/game/GameShell";
+import { TutorialSkip, TutorialSpotlight, TutorialTarget } from "@/components/tutorial/TutorialGuide";
 import { RESOURCE_ICON, AetherRune, BuildingIcon } from "@/components/game/GameIcons";
 import { PageMusic } from "@/components/game/PageMusic";
 import { AllAgesNote, Avatar, EmptyState, ErrorState, GoldRule, LoadingState, Panel, ProgressBar, RarityBadge, resourceName, ResourcePill, SectionTitle, SkeletonState, Tag } from "@/components/game/ui";
@@ -54,6 +55,8 @@ export default function Keep() {
   const quests = trpc.keep.quests.useQuery();
   const teams = trpc.keep.teams.useQuery();
   const onboarding = trpc.meta.onboarding.useQuery();
+  const completeTutorialAction = trpc.meta.completeTutorialAction.useMutation({ onSuccess: () => utils.meta.onboarding.invalidate() });
+  const mailSummary = trpc.mail.summary.useQuery(undefined, { refetchInterval: 60_000 });
 
   const [selected, setSelected] = useState<BuildingView | null>(null);
   const [claimingQuest, setClaimingQuest] = useState<string | null>(null);
@@ -108,16 +111,29 @@ export default function Keep() {
     onSettled: () => setClaimingQuest(null),
   });
 
+  const resetStamina = trpc.world.resetStamina.useMutation({
+    onSuccess: async (result) => {
+      toast.success(`体力已重置至 ${result.stamina}`, { description: `今日剩余 ${result.remaining} 次` });
+      await Promise.all([utils.keep.home.invalidate(), utils.keep.resources.invalidate(), utils.world.map.invalidate()]);
+    },
+    onError: (error) => toast.error("体力重置失败", { description: error.message }),
+  });
+
   const data = home.data;
   const goalText = useMemo(() => {
-    const next = onboarding.data?.steps.find((step) => !step.done);
-    return next ?? null;
+    return onboarding.data?.nextStep ?? null;
   }, [onboarding.data]);
+
+  useEffect(() => {
+    if (onboarding.data?.currentKey !== "build_wall" || selected || !data) return;
+    const wall = (data.buildings as BuildingView[]).find((building) => building.buildingKey === "wall");
+    if (wall) setSelected(wall);
+  }, [data, onboarding.data?.currentKey, selected]);
 
   if (home.isLoading) {
     return (
       <>
-        <PageMusic src="/aetherfall-assets/desolate-dusk.mp3" storageKey="aetherfall:keep-music-muted" areaName="主城" volume={0.2} />
+        <PageMusic src="/aetherfall-assets/desolate-dusk.mp3" areaName="主城" volume={0.2} />
         <PageSection title="灰隼堡 · 主城">
           <SkeletonState rows={4} />
         </PageSection>
@@ -128,7 +144,7 @@ export default function Keep() {
   if (home.isError || !data) {
     return (
       <>
-        <PageMusic src="/aetherfall-assets/desolate-dusk.mp3" storageKey="aetherfall:keep-music-muted" areaName="主城" volume={0.2} />
+        <PageMusic src="/aetherfall-assets/desolate-dusk.mp3" areaName="主城" volume={0.2} />
         <PageSection title="灰隼堡 · 主城">
           <ErrorState message={home.error?.message ?? "主城数据读取失败"} onRetry={() => home.refetch()} />
         </PageSection>
@@ -141,7 +157,7 @@ export default function Keep() {
 
   return (
     <>
-      <PageMusic src="/aetherfall-assets/desolate-dusk.mp3" storageKey="aetherfall:keep-music-muted" areaName="主城" volume={0.2} />
+      <PageMusic src="/aetherfall-assets/desolate-dusk.mp3" areaName="主城" volume={0.2} />
       <PageSection title={`${data.lord.keepName} · 主城`} eyebrow={`第 ${data.lord.chapter} 章 · 领主 ${data.lord.name} · 城堡 ${data.lord.level} 级`}>
       {/* 当前目标条 */}
       <Panel gold className="mb-4 p-4">
@@ -149,13 +165,10 @@ export default function Keep() {
           <span className="grid h-9 w-9 shrink-0 place-items-center rounded-sm border border-[color:var(--gold-600)]/60 bg-[color:var(--ink-950)] text-[color:var(--gold-500)]">
             <AetherRune size={18} />
           </span>
-          <div className="min-w-0 flex-1">
-            <div className="text-caption">当前目标</div>
-            <p className="truncate text-sm font-medium text-[color:var(--parchment)]">{goalText ? goalText.label : "领地运转良好，继续扩张吧"}</p>
-            {goalText?.hint ? <p className="truncate text-xs text-[color:var(--parchment-muted)]">{goalText.hint}</p> : null}
-          </div>
+          {goalText ? <TutorialTarget title={goalText.label} hint={goalText.hint} href={goalText.href} /> : <div className="min-w-0 flex-1"><div className="text-caption">当前目标</div><p className="text-sm font-medium text-[color:var(--parchment)]">领地运转良好，继续扩张吧</p></div>}
           <div className="flex gap-2">
-            {data.todos.length > 0 ? (
+            {goalText ? <TutorialSkip /> : null}
+            {!goalText && data.todos.length > 0 ? (
               <Link href="/world">
                 <Button size="sm" variant="outline" className="border-[color:var(--gold-600)]/50 text-[color:var(--gold-300)]">
                   <Swords size={14} className="mr-1" />
@@ -163,10 +176,10 @@ export default function Keep() {
                 </Button>
               </Link>
             ) : null}
-            <Button size="sm" variant="outline" className="border-[color:var(--aether-500)]/50 text-[color:var(--aether-300)]" onClick={() => rollEvent.mutate()} disabled={rollEvent.isPending}>
+            {!goalText ? <Button size="sm" variant="outline" className="border-[color:var(--aether-500)]/50 text-[color:var(--aether-300)]" onClick={() => rollEvent.mutate()} disabled={rollEvent.isPending}>
               <Timer size={14} className="mr-1" />
               议事厅抽签
-            </Button>
+            </Button> : null}
           </div>
         </div>
         <div className="mt-3 flex flex-wrap gap-2">
@@ -185,7 +198,10 @@ export default function Keep() {
       <div className="grid gap-4 lg:grid-cols-[1.35fr_1fr]">
         {/* 左：领地视图 */}
         <div className="space-y-4">
-          <Panel className="overflow-hidden p-0">
+          {onboarding.data?.currentKey === "inspect_keep" ? <TutorialSpotlight targetId="tutorial-building-area" title="先看看灰隼堡" description="点击任意建筑，查看它的等级、效果与升级成本。" /> : null}
+          {onboarding.data?.currentKey === "build_wall" ? <TutorialSpotlight targetId="keep-building-wall" title="先修好南墙" description="城墙能让灰隼堡拥有第一项防御加成；教学施工只需几秒。" /> : null}
+          {onboarding.data?.currentKey === "finish_wall" ? <TutorialSpotlight targetId="tutorial-settle-construction" title="结算南墙施工" description="施工完成后点击结算，让防御加成正式生效。" /> : null}
+          <Panel id="tutorial-building-area" className="overflow-hidden p-0">
             <div className="relative">
               <img src={KEEP_SCENE} alt="灰隼堡主城" className="h-56 w-full object-cover opacity-75 sm:h-72" onError={(event) => { event.currentTarget.style.display = "none"; }} />
               <div className="absolute inset-0 bg-gradient-to-t from-[color:var(--ink-950)] via-[color:var(--ink-950)]/35 to-transparent" />
@@ -195,7 +211,11 @@ export default function Keep() {
                 return (
                   <button
                     key={building.buildingKey}
-                    onClick={() => setSelected(building)}
+                    id={building.buildingKey === "wall" ? "keep-building-wall" : undefined}
+                    onClick={() => {
+                      setSelected(building);
+                      if (onboarding.data?.currentKey === "inspect_keep") completeTutorialAction.mutate({ action: "inspect_keep" });
+                    }}
                     className={cn(
                       "card-tap absolute -translate-x-1/2 -translate-y-1/2 rounded-sm border px-1.5 py-1 text-[0.62rem] backdrop-blur transition-colors",
                       built
@@ -227,7 +247,7 @@ export default function Keep() {
                 eyebrow="Buildings"
                 title="领地建筑"
                 action={
-                  <Button size="sm" variant="outline" className="border-[color:var(--ink-500)]/70 text-[color:var(--parchment-dim)]" onClick={() => settle.mutate()} disabled={settle.isPending}>
+                  <Button id="tutorial-settle-construction" size="sm" variant="outline" className="border-[color:var(--ink-500)]/70 text-[color:var(--parchment-dim)]" onClick={() => settle.mutate()} disabled={settle.isPending}>
                     <Timer size={13} className="mr-1" />
                     结算施工
                   </Button>
@@ -318,6 +338,42 @@ export default function Keep() {
 
         {/* 右：待办 / 任务 / 事件 */}
         <div className="space-y-4">
+          {/* 领主书房：将领主身份、体力与邮件统一放在主城首屏。 */}
+          <Panel gold>
+            <SectionTitle
+              eyebrow="Lord's Study"
+              title="领主书房"
+              action={
+                <Link href="/mailbox" className="relative">
+                  <Button size="sm" variant="outline" className="border-[color:var(--gold-600)]/60 text-[color:var(--gold-300)]">
+                    <Mail size={13} className="mr-1" />邮箱
+                  </Button>
+                  {(mailSummary.data?.unreadCount ?? 0) > 0 ? <span className="absolute -right-2 -top-2 grid h-4 min-w-4 place-items-center rounded-full bg-[color:var(--ember-500)] px-1 text-[0.56rem] font-bold text-white">{mailSummary.data!.unreadCount > 9 ? "9+" : mailSummary.data!.unreadCount}</span> : null}
+                </Link>
+              }
+            />
+            <GoldRule />
+            <div className="rounded-sm border border-[color:var(--ink-500)]/55 bg-[color:var(--ink-800)]/55 p-3">
+              <div className="text-caption">名册所载</div>
+              <div className="mt-1 text-display text-xl text-[color:var(--parchment)]">{data.lord.name}</div>
+              <p className="mt-1 text-[0.68rem] text-[color:var(--parchment-muted)]">{data.membership.active ? "会员领主 · 每日可重置体力 3 次" : "每日可重置体力 1 次"}</p>
+            </div>
+            <div className="mt-3 rounded-sm border border-[color:var(--ink-500)]/55 bg-[color:var(--ink-800)]/40 p-3">
+              <div className="mb-2 flex items-center justify-between gap-3 text-xs text-[color:var(--parchment-dim)]">
+                <span>体力</span>
+                <span className="text-numeric text-[color:var(--parchment)]">{data.resources.stamina} / {data.resources.staminaMax}</span>
+              </div>
+              <ProgressBar value={data.resources.stamina} max={data.resources.staminaMax} tone="ember" height={7} />
+              <div className="mt-3 flex items-center justify-between gap-2">
+                <span className="text-[0.66rem] text-[color:var(--parchment-muted)]">今日可用 {data.membership.staminaResetRemaining} / {data.membership.staminaResetLimit} 次</span>
+                <Button size="sm" variant="outline" className="h-8 border-[color:var(--ember-500)]/55 text-[color:var(--ember-300)]" onClick={() => resetStamina.mutate()} disabled={resetStamina.isPending || data.membership.staminaResetRemaining <= 0}>
+                  <RefreshCw size={13} className="mr-1" />{resetStamina.isPending ? "重置中…" : "重置体力"}
+                </Button>
+              </div>
+            </div>
+            {(mailSummary.data?.unreadCount ?? 0) > 0 ? <p className="mt-3 text-xs text-[color:var(--gold-300)]">邮箱中有 {mailSummary.data!.unreadCount} 封未读信函。</p> : null}
+          </Panel>
+
           {/* 领地产出 */}
           <Panel>
             <SectionTitle eyebrow="Domain" title="领地资源" />
@@ -507,7 +563,7 @@ export default function Keep() {
                     </div>
                     {selected.nextSeconds ? (
                       <p className="text-xs text-[color:var(--parchment-dim)]">
-                        施工时长：约 {Math.max(1, Math.round(selected.nextSeconds / 60))} 分钟（可立即建造跳过等待）
+                        施工时长：约 {Math.max(1, Math.round(selected.nextSeconds / 60))} 分钟（教学中的南墙施工只需几秒）
                       </p>
                     ) : null}
                     {selected.nextUnlock ? <p className="text-xs text-[color:var(--gold-300)]">解锁：{selected.nextUnlock}</p> : null}
@@ -534,18 +590,18 @@ export default function Keep() {
                 <Button
                   className="btn-gold border-transparent text-[color:var(--ink-950)]"
                   disabled={upgrade.isPending || !selected.nextLevel}
-                  onClick={() => upgrade.mutate({ buildingKey: selected.buildingKey, instant: true })}
+                  onClick={() => upgrade.mutate({ buildingKey: selected.buildingKey })}
                 >
                   {upgrade.isPending ? "处理中…" : (
                     <>
                       <Hammer size={14} className="mr-1.5" />
-                      立即建造（跳过等待）
+                      开始施工
                     </>
                   )}
                 </Button>
               </DialogFooter>
               <p className="text-[0.66rem] leading-relaxed text-[color:var(--parchment-muted)]">
-                立即建造不额外收费，仅节省等待时间——所有数值与产出均由服务端结算。
+                施工完成后可在主城结算；数值与产出均由服务端结算。
               </p>
             </>
           ) : null}

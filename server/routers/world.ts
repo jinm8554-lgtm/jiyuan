@@ -7,6 +7,7 @@ import { NODE_BY_KEY, NODE_SEEDS, NODE_TYPE_LABEL, REGION_SEEDS } from "../game/
 import { controlPercent, round } from "../game/formulas";
 import { normalizeLeaderSkillLevels } from "../game/leadership";
 import { advanceQuestProgress, recomputeRegionControl, syncUnlocks } from "../game/progress";
+import { completeTutorialAction } from "../game/tutorial";
 import { addResources, getMembershipBenefits, getStoryFlags, loadRoster, loadTeams, nodeUnlockCheck, regionUnlockCheck, setStoryFlag } from "../game/service";
 import { protectedProcedure, router } from "../_core/trpc";
 import { resolveProfile } from "./_shared";
@@ -319,6 +320,17 @@ export const worldRouter = router({
     };
   }),
 
+  /** 教程地图查看是可验证的交互：只能确认已解锁的灰隼堡外郊节点。 */
+  viewTutorialNode: protectedProcedure.mutation(async ({ ctx }) => {
+    const profile = await resolveProfile(ctx);
+    const db = await getDb();
+    if (!db) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "数据库连接暂不可用" });
+    const [state] = await db.select().from(nodeStates).where(and(eq(nodeStates.profileId, profile.id), eq(nodeStates.nodeKey, "sp_keep_road"))).limit(1);
+    if (!state || state.status === "locked") throw new TRPCError({ code: "BAD_REQUEST", message: "灰隼堡外郊尚未开放" });
+    const tutorial = await completeTutorialAction(profile.id, "enter_world");
+    return { ok: Boolean(tutorial), tutorial };
+  }),
+
   /** 剧情场景读取（进入节点或手动触发） */
   scene: protectedProcedure.input(z.object({ sceneKey: z.string().min(1).max(64) })).query(async ({ ctx, input }) => {
     const profile = await resolveProfile(ctx);
@@ -429,13 +441,12 @@ export const worldRouter = router({
     return { ok: true, controlPercent: percent, questUpdates: progress.updated };
   }),
 
-  /** 会员每日体力重置：恢复至当前体力上限，不改变战斗数值。 */
+  /** 每日体力重置：普通领主 1 次，会员 3 次；恢复至当前体力上限。 */
   resetStamina: protectedProcedure.mutation(async ({ ctx }) => {
     const profile = await resolveProfile(ctx);
     const db = await getDb();
     if (!db) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "数据库连接暂不可用" });
     const benefits = await getMembershipBenefits(profile.id);
-    if (!benefits.active) throw new TRPCError({ code: "FORBIDDEN", message: "该权益仅对有效会员开放" });
     if (benefits.staminaResetRemaining <= 0) throw new TRPCError({ code: "BAD_REQUEST", message: "今日体力重置次数已用完" });
     const [before] = await db.select({ uses: gameProfiles.staminaResetUses }).from(gameProfiles).where(eq(gameProfiles.id, profile.id)).limit(1);
     const result = await db
@@ -445,7 +456,7 @@ export const worldRouter = router({
         staminaUpdatedAt: new Date(),
         staminaResetUses: sql`${gameProfiles.staminaResetUses} + 1`,
       })
-      .where(and(eq(gameProfiles.id, profile.id), eq(gameProfiles.membershipDayKey, benefits.dayKey), lt(gameProfiles.staminaResetUses, 3)));
+      .where(and(eq(gameProfiles.id, profile.id), eq(gameProfiles.membershipDayKey, benefits.dayKey), lt(gameProfiles.staminaResetUses, benefits.staminaResetLimit)));
     void result;
     const [after] = await db.select({ uses: gameProfiles.staminaResetUses }).from(gameProfiles).where(eq(gameProfiles.id, profile.id)).limit(1);
     if (!before || !after || after.uses !== before.uses + 1) throw new TRPCError({ code: "CONFLICT", message: "体力重置状态已变化，请刷新后重试" });

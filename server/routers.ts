@@ -17,6 +17,7 @@ import { battleRouter } from "./routers/battle";
 import { characterRouter } from "./routers/character";
 import { keepRouter } from "./routers/keep";
 import { leadershipRouter } from "./routers/leadership";
+import { mailRouter } from "./routers/mail";
 import { metaRouter } from "./routers/meta";
 import { recruitRouter } from "./routers/recruit";
 import { worldRouter } from "./routers/world";
@@ -80,6 +81,7 @@ export const appRouter = router({
   }),
   meta: metaRouter,
   keep: keepRouter,
+  mail: mailRouter,
   character: characterRouter,
   recruit: recruitRouter,
   world: worldRouter,

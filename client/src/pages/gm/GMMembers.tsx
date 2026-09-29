@@ -1,7 +1,7 @@
 /** GM 会员与角色管理：账号、档案、已拥有角色与全局角色资料集中维护。 */
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { ArrowDown, ArrowUp, Ban, Clock3, PackageOpen, Search, ShieldCheck, Trash2, UserRoundCog } from "lucide-react";
+import { ArrowDown, ArrowUp, Ban, Clock3, Mail, PackageOpen, Search, ShieldCheck, Trash2, UserRoundCog } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -85,11 +85,13 @@ export default function GMMembers() {
   const [deleteTarget, setDeleteTarget] = useState<null | { id: number; name: string }>(null);
   const [characterDialog, setCharacterDialog] = useState<OwnedCharacter | null>(null);
   const [resourceForm, setResourceForm] = useState({ gold: 0, food: 0, wood: 0, iron: 0, aether: 0, renown: 0, stamina: 0, reason: "GM 调整" });
+  const [mailForm, setMailForm] = useState({ subject: "", content: "", rewards: { gold: 0, food: 0, wood: 0, iron: 0, aether: 0, renown: 0, stamina: 0, recruitShards: 0 } });
   const [characterForm, setCharacterForm] = useState({ level: 1, exp: 0, ascension: 0, bondLevel: 1, bondExp: 0, affection: 0, locked: false, isNew: false });
 
   const members = trpc.admin.listMembers.useQuery({ search: search || undefined, page, pageSize: 20, sortBy, sortDirection });
   const memberGameData = trpc.admin.getMemberGameData.useQuery({ userId: memberDialog?.id ?? 0 }, { enabled: Boolean(memberDialog) });
   const activeProfile = memberGameData.data?.profile ?? null;
+  const ownedCharacters = memberGameData.data?.characters ?? [];
 
   useEffect(() => {
     const profile = memberGameData.data?.profile;
@@ -129,6 +131,14 @@ export default function GMMembers() {
       await utils.admin.getMemberGameData.invalidate();
     },
     onError: (error) => toast.error("角色更新失败", { description: error.message }),
+  });
+
+  const sendMail = trpc.admin.sendMail.useMutation({
+    onSuccess: () => {
+      toast.success("信函已投递到领主邮箱");
+      setMailForm({ subject: "", content: "", rewards: { gold: 0, food: 0, wood: 0, iron: 0, aether: 0, renown: 0, stamina: 0, recruitShards: 0 } });
+    },
+    onError: (error) => toast.error("投递失败", { description: error.message }),
   });
 
   const deleteMember = trpc.admin.deleteMember.useMutation({
@@ -328,13 +338,45 @@ export default function GMMembers() {
               </section>
 
               <section>
-                <SectionTitle eyebrow="Owned characters" title={`已拥有角色（${memberGameData.data.characters.length}）`} />
+                <SectionTitle eyebrow="Lord's Mail" title="投递领主信函" action={<Mail size={15} className="text-[color:var(--gold-400)]" />} />
                 <GoldRule />
-                {memberGameData.data.characters.length === 0 ? (
+                <p className="text-[0.68rem] text-[color:var(--parchment-muted)]">纯通知可不附资源；附带资源会由领主在邮箱中主动领取。</p>
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <Label className="text-[0.68rem] text-[color:var(--parchment-muted)]">标题</Label>
+                    <Input value={mailForm.subject} onChange={(event) => setMailForm({ ...mailForm, subject: event.target.value })} placeholder="例如：边境补给已抵达" className="mt-1 h-8 border-[color:var(--ink-500)]/70 bg-[color:var(--ink-800)]/70 text-xs text-[color:var(--parchment)]" />
+                  </div>
+                  <div className="sm:row-span-2">
+                    <Label className="text-[0.68rem] text-[color:var(--parchment-muted)]">正文</Label>
+                    <textarea value={mailForm.content} onChange={(event) => setMailForm({ ...mailForm, content: event.target.value })} placeholder="向领主说明这封信函的来由…" className="mt-1 min-h-20 w-full resize-y rounded-sm border border-[color:var(--ink-500)]/70 bg-[color:var(--ink-800)]/70 p-2 text-xs text-[color:var(--parchment)] outline-none placeholder:text-[color:var(--parchment-muted)] focus:border-[color:var(--gold-600)]/70" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {([
+                      ["gold", "金币"], ["food", "粮食"], ["wood", "木材"], ["iron", "铁矿"],
+                      ["aether", "星辉"], ["renown", "声望"], ["stamina", "体力"], ["recruitShards", "星辉信物"],
+                    ] as const).map(([key, label]) => (
+                      <div key={key}>
+                        <Label className="text-[0.62rem] text-[color:var(--parchment-muted)]">{label}</Label>
+                        <Input type="number" min={0} value={mailForm.rewards[key]} onChange={(event) => setMailForm({ ...mailForm, rewards: { ...mailForm.rewards, [key]: Math.max(0, Number(event.target.value) || 0) } })} className="mt-1 h-7 border-[color:var(--ink-500)]/70 bg-[color:var(--ink-800)]/70 text-xs text-[color:var(--parchment)]" />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="mt-3 flex justify-end">
+                  <Button className="btn-gold border-transparent text-[color:var(--ink-950)]" disabled={sendMail.isPending || !mailForm.subject.trim() || !mailForm.content.trim()} onClick={() => sendMail.mutate({ profileId: activeProfile.id, subject: mailForm.subject, content: mailForm.content, rewards: mailForm.rewards })}>
+                    <Mail size={13} className="mr-1" />{sendMail.isPending ? "投递中…" : "投递信函"}
+                  </Button>
+                </div>
+              </section>
+
+              <section>
+                <SectionTitle eyebrow="Owned characters" title={`已拥有角色（${ownedCharacters.length}）`} />
+                <GoldRule />
+                {ownedCharacters.length === 0 ? (
                   <EmptyState title="该档案尚未拥有角色" />
                 ) : (
                   <div className="mt-3 space-y-2">
-                    {(memberGameData.data.characters as OwnedCharacter[]).map((character) => (
+                    {(ownedCharacters as OwnedCharacter[]).map((character) => (
                       <div key={character.id} className="flex flex-wrap items-center gap-3 rounded-sm border border-[color:var(--ink-500)]/45 bg-[color:var(--ink-800)]/40 p-2.5">
                         {character.avatarUrl ? <img src={character.avatarUrl} alt="" className="h-9 w-9 rounded-sm object-cover" onError={(event) => { event.currentTarget.style.display = "none"; }} /> : <span className="grid h-9 w-9 place-items-center rounded-sm border border-[color:var(--ink-500)]/50 text-[0.68rem] text-[color:var(--gold-300)]">{character.rarity}</span>}
                         <div className="min-w-[160px] flex-1">

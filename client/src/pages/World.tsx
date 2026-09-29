@@ -2,7 +2,7 @@
  * 世界地图页
  * 结构：手绘地图（区域蜡封 + 节点标记）+ 区域/节点详情面板 + 剧情场景播放
  */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
 import { BookOpen, Crown, Lock, MapPin, Package, RefreshCw, ShieldAlert, Swords, Timer, TrendingUp, Zap } from "lucide-react";
@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import { PageSection } from "@/components/game/GameShell";
+import { TutorialSkip, TutorialSpotlight } from "@/components/tutorial/TutorialGuide";
 import { AllAgesNote, EmptyState, ErrorState, GoldRule, Panel, ProgressBar, RarityBadge, resourceName, SectionTitle, SkeletonState, Tag } from "@/components/game/ui";
 import { ELEMENT_ICON, JOB_ICON } from "@/components/game/GameIcons";
 import { PageMusic } from "@/components/game/PageMusic";
@@ -33,10 +34,12 @@ export default function World() {
   const [, navigate] = useLocation();
   const map = trpc.world.map.useQuery();
   const suggestions = trpc.world.suggestions.useQuery();
+  const onboarding = trpc.meta.onboarding.useQuery();
 
   const [regionKey, setRegionKey] = useState<string | null>(null);
   const [nodeKey, setNodeKey] = useState<string | null>(null);
   const [sceneKey, setSceneKey] = useState<string | null>(null);
+  const viewTutorialNode = trpc.world.viewTutorialNode.useMutation({ onSuccess: () => utils.meta.onboarding.invalidate() });
 
   const nodeDetail = trpc.world.node.useQuery({ nodeKey: nodeKey ?? "" }, { enabled: Boolean(nodeKey) });
   const scene = trpc.world.scene.useQuery({ sceneKey: sceneKey ?? "" }, { enabled: Boolean(sceneKey) });
@@ -92,11 +95,20 @@ export default function World() {
 
   const activeRegion = useMemo(() => map.data?.regions.find((region) => region.regionKey === regionKey) ?? null, [map.data, regionKey]);
   const activeNode = useMemo(() => activeRegion?.nodes.find((node) => node.nodeKey === nodeKey) ?? null, [activeRegion, nodeKey]);
+  useEffect(() => {
+    if (onboarding.data?.currentKey !== "enter_world" || !map.data || regionKey) return;
+    const region = map.data.regions.find((item) => item.nodes.some((node) => node.nodeKey === "sp_keep_road"));
+    if (region) setRegionKey(region.regionKey);
+  }, [map.data, onboarding.data?.currentKey, regionKey]);
+  const selectNode = (key: string) => {
+    setNodeKey(key);
+    if (key === "sp_keep_road" && onboarding.data?.currentKey === "enter_world") viewTutorialNode.mutate();
+  };
 
   if (map.isLoading) {
     return (
       <>
-        <PageMusic src="/aetherfall-assets/world-theme.mp3" storageKey="aetherfall:world-music-muted" areaName="世界地图" />
+        <PageMusic src="/aetherfall-assets/world-theme.mp3" areaName="世界地图" />
         <PageSection title="世界地图">
           <SkeletonState rows={5} />
         </PageSection>
@@ -107,7 +119,7 @@ export default function World() {
   if (map.isError || !map.data) {
     return (
       <>
-        <PageMusic src="/aetherfall-assets/world-theme.mp3" storageKey="aetherfall:world-music-muted" areaName="世界地图" />
+        <PageMusic src="/aetherfall-assets/world-theme.mp3" areaName="世界地图" />
         <PageSection title="世界地图">
           <ErrorState message={map.error?.message ?? "地图读取失败"} onRetry={() => map.refetch()} />
         </PageSection>
@@ -119,7 +131,7 @@ export default function World() {
 
   return (
     <>
-      <PageMusic src="/aetherfall-assets/world-theme.mp3" storageKey="aetherfall:world-music-muted" areaName="世界地图" />
+      <PageMusic src="/aetherfall-assets/world-theme.mp3" areaName="世界地图" />
       <PageSection
       title="世界地图 · 银杉边境与邻境"
       eyebrow={`已探索节点 ${summary.clearedNodes}/${summary.totalNodes} · 区域 ${summary.unlockedRegions}/${summary.totalRegions}`}
@@ -136,6 +148,7 @@ export default function World() {
         </div>
       }
     >
+      {onboarding.data?.currentKey === "enter_world" ? <TutorialSpotlight className="mb-4" targetId="tutorial-node-sp-keep-road" title="前往灰隼堡外郊" description="这里是最安全的出发点。查看敌人、体力消耗、首通奖励与推荐战力后再出征。" /> : null}
       {/* 远征建议 */}
       <Panel gold className="mb-4 p-4">
         <div className="flex flex-wrap items-center gap-3">
@@ -151,7 +164,7 @@ export default function World() {
                   const region = regions.find((row) => row.nodes.some((node) => node.nodeKey === item.nodeKey));
                   if (region) {
                     setRegionKey(region.regionKey);
-                    setNodeKey(item.nodeKey);
+                    selectNode(item.nodeKey);
                   }
                 }}
               >
@@ -244,7 +257,7 @@ export default function World() {
                   node.nodeKey === nodeKey && "ring-2 ring-[color:var(--aether-300)]/70",
                 )}
                 style={{ left: `${node.mapX}%`, top: `${node.mapY}%` }}
-                onClick={() => setNodeKey(node.nodeKey)}
+                onClick={() => selectNode(node.nodeKey)}
                 title={`${node.name} · ${node.nodeTypeLabel}`}
               >
                 {node.name}
@@ -329,7 +342,8 @@ export default function World() {
                       "card-tap flex w-full items-center gap-2 rounded-sm border px-2.5 py-2 text-left",
                       node.nodeKey === nodeKey ? "border-[color:var(--aether-500)]/70 bg-[color:var(--ink-800)]/70" : "border-[color:var(--ink-500)]/50 bg-[color:var(--ink-800)]/40 hover:border-[color:var(--gold-600)]/60",
                     )}
-                    onClick={() => setNodeKey(node.nodeKey)}
+                    id={node.nodeKey === "sp_keep_road" ? "tutorial-node-sp-keep-road" : undefined}
+                    onClick={() => selectNode(node.nodeKey)}
                   >
                     <span className="min-w-0 flex-1">
                       <span className="flex items-center gap-2">
@@ -406,6 +420,7 @@ export default function World() {
               </div>
 
               <div className="flex flex-wrap gap-2">
+                {onboarding.data?.currentKey === "enter_world" ? <TutorialSkip /> : null}
                 <Button
                   className="btn-gold border-transparent text-[color:var(--ink-950)]"
                   disabled={!activeNode.unlocked}

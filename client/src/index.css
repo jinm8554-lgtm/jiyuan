@@ -411,6 +411,15 @@
     padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 0.5rem);
   }
 
+  .tutorial-spotlight {
+    outline: 2px solid color-mix(in srgb, var(--gold-500) 85%, transparent);
+    outline-offset: 3px;
+    box-shadow: 0 0 0 5px color-mix(in srgb, var(--gold-500) 14%, transparent), 0 0 28px color-mix(in srgb, var(--gold-500) 26%, transparent);
+    animation: tutorial-pulse 1.9s ease-in-out infinite;
+  }
+  @keyframes tutorial-pulse { 50% { box-shadow: 0 0 0 8px color-mix(in srgb, var(--gold-500) 7%, transparent), 0 0 34px color-mix(in srgb, var(--gold-500) 34%, transparent); } }
+  @media (prefers-reduced-motion: reduce) { .tutorial-spotlight { animation: none; } }
+
   /* 欢迎仪式正文卡片：仅在边缘叠加旧羊皮纸的焦痕，不降低正文对比度。 */
   .ritual-parchment-edge {
     position: relative;

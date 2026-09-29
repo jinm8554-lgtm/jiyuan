@@ -32,14 +32,66 @@ test("新玩家可以完成登录、建档、首战和招募", async ({ page }) 
     await ritual.getByLabel("姓").fill("瓦尔登");
     await ritual.getByRole("button", { name: "落 笔" }).click();
     await expect(ritual).toBeHidden();
+    const tutorial = page.getByRole("dialog", { name: "灰隼堡，仍然在等人。" });
+    await expect(tutorial).toBeVisible();
+    await tutorial.getByRole("button", { name: "开始巡视" }).click();
     await expect(
       page.getByRole("heading", { name: /灰隼堡 · 主城/ })
     ).toBeVisible();
     await expect(page.getByText(username, { exact: true })).toBeVisible();
   });
 
-  await test.step("选择首个世界节点", async () => {
+  await test.step("完成首个建筑与远征队编成", async () => {
+    await page.locator("#keep-building-wall").click();
+    await expect(page.getByRole("heading", { name: "城墙" })).toBeVisible();
+    await page.getByRole("button", { name: "开始施工" }).click();
+    await expect(page.getByText("施工中").first()).toBeVisible();
+    await page.waitForTimeout(6_000);
+    await page.locator("#tutorial-settle-construction").click();
+    await page.getByRole("link", { name: "同伴" }).click();
+    await expect(page).toHaveURL(/\/roster$/);
+    await expect(page.locator("#tutorial-team-save")).toBeVisible();
+    const companions = page.locator('button[title*=" · "]');
+    expect(await companions.count()).toBeGreaterThanOrEqual(1);
+    await companions.nth(0).click();
+    if (await companions.count() > 1) await companions.nth(1).click();
+    await page.locator("#tutorial-team-save").click();
+    await expect(page.getByText("远征队已更新")).toBeVisible();
+  });
+
+  await test.step("全局静音会跨页面与刷新保留", async () => {
+    const musicButton = page.getByRole("button", { name: /静音全局音乐|全局音乐已开启/ });
+    await expect(musicButton).toBeVisible();
+    await musicButton.click();
+    await expect.poll(() => page.evaluate(() => localStorage.getItem("aetherfall:music-muted"))).toBe("true");
+
     await page.getByRole("link", { name: "世界地图" }).click();
+    await expect(page).toHaveURL(/\/world$/);
+    await expect(page.getByRole("button", { name: "开启全局音乐" })).toBeVisible();
+    const worldMusic = page.locator("audio").filter({ has: page.locator('source[src="/aetherfall-assets/world-theme.mp3"]') });
+    await expect.poll(() => worldMusic.evaluate((audio) => audio.paused)).toBe(true);
+
+    await page.reload();
+    await expect(page.getByRole("button", { name: "开启全局音乐" })).toBeVisible();
+  });
+
+  await test.step("主城领主书房显示命名、体力重置与邮箱入口", async () => {
+    await page.getByRole("link", { name: "主城" }).click();
+    await expect(page).toHaveURL(/\/keep$/);
+    await expect(page.getByRole("heading", { name: "领主书房" })).toBeVisible();
+    await expect(page.getByText("烟测·瓦尔登", { exact: true })).toBeVisible();
+    await expect(page.getByText(/今日可用 1 \/ 1 次/)).toBeVisible();
+    await page.locator('a[href="/mailbox"]').last().click();
+    await expect(page).toHaveURL(/\/mailbox$/);
+    await expect(page.getByRole("heading", { name: "领主邮箱" })).toBeVisible();
+    await expect(page.getByText("邮箱里还没有信函")).toBeVisible();
+    await page.getByRole("link", { name: "返回主城" }).click();
+    await expect(page).toHaveURL(/\/keep$/);
+    await page.getByRole("link", { name: "世界地图" }).click();
+    await expect(page).toHaveURL(/\/world$/);
+  });
+
+  await test.step("选择首个世界节点", async () => {
     await expect(page).toHaveURL(/\/world$/);
     await expect(page.getByRole("heading", { name: /世界地图/ })).toBeVisible();
 

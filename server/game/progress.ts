@@ -22,13 +22,14 @@ export type ProgressEvent =
   | { type: "own_character"; charKey: string }
   | { type: "level_character"; charKey: string; level: number }
   | { type: "talk_ai"; charKey: string | null }
+  | { type: "form_team"; memberCount: number }
   | { type: "equip_item"; charKey: string; slot: string }
   | { type: "control_region"; regionKey: string; percent: number };
 
-type Objective = { type?: string; key?: string; count?: number; label?: string };
+type Objective = { type?: string; key?: string; buildingKey?: string; nodeKey?: string; count?: number; label?: string };
 
 function objectiveMatches(objective: Objective, event: ProgressEvent): boolean {
-  const key = objective.key ?? "any";
+  const key = objective.key ?? objective.buildingKey ?? objective.nodeKey ?? "any";
   switch (objective.type) {
     case "clear_node":
       if (event.type !== "clear_node") return false;
@@ -47,6 +48,8 @@ function objectiveMatches(objective: Objective, event: ProgressEvent): boolean {
     case "talk_ai":
       if (event.type !== "talk_ai") return false;
       return key === "any" || key === event.charKey;
+    case "form_team":
+      return event.type === "form_team" && event.memberCount > 0;
     case "equip_item":
       return event.type === "equip_item" && (key === "any" || key === event.slot);
     case "control_region":

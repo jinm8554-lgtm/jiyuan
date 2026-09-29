@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import { PageSection } from "@/components/game/GameShell";
+import { TutorialSkip, TutorialSpotlight } from "@/components/tutorial/TutorialGuide";
 import { ELEMENT_ICON, JOB_ICON } from "@/components/game/GameIcons";
 import { PageMusic } from "@/components/game/PageMusic";
 import { AllAgesNote, Avatar, ELEMENT_COLOR, EmptyState, ErrorState, GoldRule, JOB_NAME, Panel, RarityBadge, SectionTitle, SkeletonState, Tag } from "@/components/game/ui";
@@ -37,6 +38,7 @@ export default function Roster() {
   const roster = trpc.character.roster.useQuery(query);
   const teams = trpc.keep.teams.useQuery();
   const home = trpc.keep.home.useQuery();
+  const onboarding = trpc.meta.onboarding.useQuery();
 
   const [draftIds, setDraftIds] = useState<number[]>([]);
   const [draftRows, setDraftRows] = useState<Record<number, "front" | "back">>({});
@@ -62,7 +64,7 @@ export default function Roster() {
   const setTeam = trpc.keep.setTeam.useMutation({
     onSuccess: async () => {
       toast.success("远征队已更新");
-      await Promise.all([utils.keep.teams.invalidate(), utils.keep.home.invalidate()]);
+      await Promise.all([utils.keep.teams.invalidate(), utils.keep.home.invalidate(), utils.meta.onboarding.invalidate(), utils.keep.quests.invalidate()]);
     },
     onError: (error) => toast.error("保存失败", { description: error.message }),
   });
@@ -88,7 +90,7 @@ export default function Roster() {
   if (roster.isLoading) {
     return (
       <>
-        <PageMusic src="/aetherfall-assets/keep-theme.mp3" storageKey="aetherfall:roster-music-muted" areaName="同伴" />
+        <PageMusic src="/aetherfall-assets/keep-theme.mp3" areaName="同伴" />
         <PageSection title="同伴">
           <SkeletonState rows={4} />
         </PageSection>
@@ -99,7 +101,7 @@ export default function Roster() {
   if (roster.isError || !roster.data) {
     return (
       <>
-        <PageMusic src="/aetherfall-assets/keep-theme.mp3" storageKey="aetherfall:roster-music-muted" areaName="同伴" />
+        <PageMusic src="/aetherfall-assets/keep-theme.mp3" areaName="同伴" />
         <PageSection title="同伴">
           <ErrorState message={roster.error?.message ?? "名册读取失败"} onRetry={() => roster.refetch()} />
         </PageSection>
@@ -111,7 +113,7 @@ export default function Roster() {
 
   return (
     <>
-      <PageMusic src="/aetherfall-assets/keep-theme.mp3" storageKey="aetherfall:roster-music-muted" areaName="同伴" />
+      <PageMusic src="/aetherfall-assets/keep-theme.mp3" areaName="同伴" />
       <PageSection
         title="同伴 · 名册"
       eyebrow={`已招募 ${summary.owned}/${summary.total} · 英杰 ${summary.ssrOwned}/${summary.ssrTotal} · 总战力 ${summary.totalPower.toLocaleString("zh-CN")}`}
@@ -164,6 +166,7 @@ export default function Roster() {
         </div>
       }
     >
+      {onboarding.data?.currentKey === "form_expedition" ? <TutorialSpotlight className="mb-4" targetId="tutorial-team-save" title="编成第一支远征队" description="选择 1 至 4 名同伴；前排更适合承伤，后排负责输出或治疗。保存后即可前往灰隼堡外郊。" /> : null}
       <div className="grid gap-4 lg:grid-cols-[1.5fr_1fr]">
         {/* 角色网格 */}
         <div>
@@ -264,6 +267,7 @@ export default function Roster() {
               title={activeTeam ? activeTeam.name : "远征队"}
               action={
                 <Button
+                  id="tutorial-team-save"
                   size="sm"
                   className="btn-gold border-transparent text-[color:var(--ink-950)]"
                   disabled={!activeTeam || setTeam.isPending}
@@ -274,6 +278,7 @@ export default function Roster() {
                 </Button>
               }
             />
+            {onboarding.data?.currentKey === "form_expedition" ? <TutorialSkip className="mb-2" /> : null}
             <GoldRule />
             {!activeTeam ? (
               <EmptyState title="没有可用的队伍" hint="创建档案时会自动生成一支远征队。" icon={<Users size={20} />} />

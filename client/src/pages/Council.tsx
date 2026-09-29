@@ -19,6 +19,7 @@ import { cn } from "@/lib/utils";
 import { usePlayerName } from "@/hooks/usePlayerName";
 import { PageMusic } from "@/components/game/PageMusic";
 import { PageSection } from "@/components/game/GameShell";
+import { TutorialSkip, TutorialSpotlight } from "@/components/tutorial/TutorialGuide";
 import { Avatar, EmptyState, ErrorState, GoldRule, Panel, RarityBadge, SectionTitle, SkeletonState, Tag } from "@/components/game/ui";
 
 const COUNCIL_SCENE = "/aetherfall-assets/council_d4b84b1c.jpg";
@@ -65,6 +66,7 @@ export default function Council() {
   const utils = trpc.useUtils();
   const cast = trpc.ai.cast.useQuery();
   const leadership = trpc.leadership.state.useQuery();
+  const onboarding = trpc.meta.onboarding.useQuery();
   const playerName = usePlayerName();
 
   const [conversationId, setConversationId] = useState<number | null>(null);
@@ -78,6 +80,14 @@ const [scene, setScene] = useState<SceneKey>("council");
   const [violations, setViolations] = useState<Array<{ code: string; detail: string }>>([]);
   const [olderTurnsOpen, setOlderTurnsOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+
+  const tutorialCouncil = onboarding.data?.currentKey === "council_talk";
+  useEffect(() => {
+    if (!tutorialCouncil || !cast.data || presentKeys.length > 0) return;
+    const recommended = cast.data.characters.filter((item) => ["adrian", "greta"].includes(item.charKey)).slice(0, 2).map((item) => item.charKey);
+    setPresentKeys(recommended.length > 0 ? recommended : cast.data.characters.slice(0, 2).map((item) => item.charKey));
+    setInput("灰隼堡接下来最应该优先修复什么？");
+  }, [cast.data, presentKeys.length, tutorialCouncil]);
 
   const conversation = trpc.ai.conversation.useQuery({ conversationId: conversationId ?? 0 }, { enabled: Boolean(conversationId) });
 
@@ -152,6 +162,7 @@ const [scene, setScene] = useState<SceneKey>("council");
         utils.ai.cast.invalidate(),
         utils.keep.quests.invalidate(),
         utils.leadership.state.invalidate(),
+        utils.meta.onboarding.invalidate(),
       ]);
       if (result.leaderReward?.awarded) {
         toast.success(`有效议事 · 领袖力 +${result.leaderReward.amount}`, { description: `今日议事奖励 ${result.leaderReward.rewarded}/5` });
@@ -236,7 +247,7 @@ const [scene, setScene] = useState<SceneKey>("council");
   if (cast.isLoading) {
     return (
       <>
-        <PageMusic src="/aetherfall-assets/council-theme.mp3" storageKey="aetherfall:council-music-muted" areaName="议事厅" />
+        <PageMusic src="/aetherfall-assets/council-theme.mp3" areaName="议事厅" />
         <PageSection title="议事厅">
           <SkeletonState rows={4} />
         </PageSection>
@@ -247,7 +258,7 @@ const [scene, setScene] = useState<SceneKey>("council");
   if (cast.isError || !cast.data) {
     return (
       <>
-        <PageMusic src="/aetherfall-assets/council-theme.mp3" storageKey="aetherfall:council-music-muted" areaName="议事厅" />
+        <PageMusic src="/aetherfall-assets/council-theme.mp3" areaName="议事厅" />
         <PageSection title="议事厅">
           <ErrorState message={cast.error?.message ?? "读取失败"} onRetry={() => cast.refetch()} />
         </PageSection>
@@ -257,6 +268,7 @@ const [scene, setScene] = useState<SceneKey>("council");
 
   const castData = cast.data;
   const hasCouncilQuota = castData.councilQuota.remaining > 0;
+  const canTalk = hasCouncilQuota || tutorialCouncil;
   const renderMessage = (message: MessageView, index: number, keyPrefix: string) => {
     const isPlayer = message.role === "player";
     const isNarrator = message.role === "narrator";
@@ -293,7 +305,7 @@ const [scene, setScene] = useState<SceneKey>("council");
 
   return (
     <>
-      <PageMusic src="/aetherfall-assets/council-theme.mp3" storageKey="aetherfall:council-music-muted" areaName="议事厅" />
+      <PageMusic src="/aetherfall-assets/council-theme.mp3" areaName="议事厅" />
       <PageSection
       title="议事厅 · 角色会谈"
       eyebrow={castData.aiConfigured.model ? `${castData.aiConfigured.name} · ${castData.aiConfigured.model}` : castData.aiConfigured.name}
@@ -311,6 +323,7 @@ const [scene, setScene] = useState<SceneKey>("council");
         </div>
       }
     >
+      {tutorialCouncil ? <TutorialSpotlight className="mb-4" targetId="tutorial-council-send" title="听取同伴的意见" description="新手会谈使用本地角色回应，不消耗 AI 额度；会谈和羁绊仍会真实写入档案。" /> : null}
       <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
         {/* 对话区 */}
         <div className="space-y-3">
@@ -397,21 +410,23 @@ const [scene, setScene] = useState<SceneKey>("council");
                     value={input}
                     onChange={(event) => setInput(event.target.value)}
                     placeholder={hasPresence ? "向在场角色提问，例如：南墙的修缮应该先动哪里？" : "请先选择在场角色"}
-                    disabled={!isConversationOpen || !hasPresence || !hasCouncilQuota || talk.isPending}
+                    disabled={!isConversationOpen || !hasPresence || !canTalk || talk.isPending}
                     rows={2}
                     maxLength={500}
                     className="min-h-[44px] resize-none border-[color:var(--ink-500)]/70 bg-[color:var(--ink-950)]/85 text-sm text-[color:var(--parchment)]"
                   />
                   <Button
                     className="btn-gold shrink-0 border-transparent text-[color:var(--ink-950)]"
-                    disabled={!isConversationOpen || !hasPresence || !hasCouncilQuota || !input.trim() || talk.isPending}
-                    onClick={() => talk.mutate({ conversationId: conversationId!, message: input.trim(), activeCharKey: activeCharKey === ALL_ACTIVE ? null : activeCharKey, presentKeys })}
+                    id="tutorial-council-send"
+                    disabled={!isConversationOpen || !hasPresence || !canTalk || !input.trim() || talk.isPending}
+                    onClick={() => talk.mutate({ conversationId: conversationId!, message: input.trim(), activeCharKey: activeCharKey === ALL_ACTIVE ? null : activeCharKey, presentKeys, tutorialFallback: tutorialCouncil })}
                   >
-                    {talk.isPending ? "发言中…" : !isConversationOpen ? "会谈已结束" : !hasCouncilQuota ? "今日已用完" : (<><Send size={14} className="mr-1" />发言</>)}
+                    {talk.isPending ? "发言中…" : !isConversationOpen ? "会谈已结束" : !canTalk ? "今日已用完" : (<><Send size={14} className="mr-1" />发言</>)}
                   </Button>
                 </div>
                 {conversationId && !isConversationOpen && !conversation.isLoading ? <p className="text-[0.66rem] text-[color:var(--parchment-muted)]">本次会谈已经结束；历史记录仍可查看，开启新会谈后才能继续发言。</p> : null}
-                {!hasCouncilQuota ? <p className="text-[0.66rem] text-[color:var(--danger-400)]">今日议事次数已用完，明日重置。{castData.councilQuota.membershipActive ? "" : "会员可获得更多会谈机会。"}</p> : null}
+                {tutorialCouncil ? <div className="flex items-center justify-between gap-2"><p className="text-[0.66rem] text-[color:var(--aether-300)]">本次将显示“本地角色回应”，不消耗外部 AI 额度。</p><TutorialSkip /></div> : null}
+                {!hasCouncilQuota && !tutorialCouncil ? <p className="text-[0.66rem] text-[color:var(--danger-400)]">今日议事次数已用完，明日重置。{castData.councilQuota.membershipActive ? "" : "会员可获得更多会谈机会。"}</p> : null}
                 {activeCharacter ? (
                   <p className="text-[0.66rem] text-[color:var(--parchment-muted)]">
                     当前点名：<span className="text-[color:var(--gold-300)]">{activeCharacter.name}</span>（{activeCharacter.title}）优先回应；在场其他角色仍可插话或保持沉默。
