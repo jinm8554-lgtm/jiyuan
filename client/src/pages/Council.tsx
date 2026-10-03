@@ -277,12 +277,12 @@ const [scene, setScene] = useState<SceneKey>("council");
     return (
       <div key={message.id ?? [keyPrefix, index].join("-")} className={cn("flex gap-2", isPlayer && "flex-row-reverse")}>
         {!isNarrator ? (
-          <Avatar src={message.avatarUrl ?? null} name={message.speakerName} rarity={(message.rarity as "R" | "SR" | "SSR") ?? "R"} size={34} className="mt-0.5 shrink-0" />
+          <Avatar src={message.avatarUrl ?? null} name={message.speakerName} rarity={(message.rarity as "R" | "SR" | "SSR" | "UR") ?? "R"} size={34} className="mt-0.5 shrink-0" />
         ) : null}
         <div className={cn("max-w-[78%] rounded-sm border p-2.5", isPlayer ? "border-[color:var(--gold-600)]/50 bg-[color:var(--ink-800)]/85" : isNarrator ? "border-[color:var(--aether-500)]/40 bg-[color:var(--ink-900)]/75" : "border-[color:var(--ink-500)]/60 bg-[color:var(--ink-800)]/60")}>
           <div className="mb-1 flex flex-wrap items-center gap-1.5">
             <span className="text-[0.68rem] text-[color:var(--gold-300)]">{message.speakerName}</span>
-            {message.rarity ? <RarityBadge rarity={message.rarity as "R" | "SR" | "SSR"} /> : null}
+            {message.rarity ? <RarityBadge rarity={message.rarity as "R" | "SR" | "SSR" | "UR"} /> : null}
             {!isPlayer && message.source === "fallback" ? <Tag tone="neutral">兜底文本</Tag> : null}
             {!isPlayer && message.source === "ai" ? <Tag tone="aether">AI</Tag> : null}
             {action && ACTION_LABEL[action] && action !== "speak" ? <Tag tone="gold">{ACTION_LABEL[action]}</Tag> : null}
@@ -347,7 +347,7 @@ const [scene, setScene] = useState<SceneKey>("council");
                     if (!character) return null;
                     return (
                       <span key={key} className="flex shrink-0 items-center gap-1.5 rounded-sm border border-[color:var(--gold-600)]/60 bg-[color:var(--ink-950)]/85 px-1.5 py-1">
-                        <Avatar src={character.avatarUrl} name={character.name} rarity={character.rarity as "R" | "SR" | "SSR"} size={22} />
+                        <Avatar src={character.avatarUrl} name={character.name} rarity={character.rarity as "R" | "SR" | "SSR" | "UR"} size={22} />
                         <span className="text-[0.66rem] text-[color:var(--parchment)]">{character.name}</span>
                         <button
                           className="text-[color:var(--parchment-muted)] hover:text-[color:var(--blood)]"
@@ -582,7 +582,7 @@ const [scene, setScene] = useState<SceneKey>("council");
                         selected ? "border-[color:var(--gold-300)] bg-[color:var(--ink-700)]/70" : "border-[color:var(--ink-500)]/50 bg-[color:var(--ink-800)]/40 hover:border-[color:var(--gold-600)]/60",
                       )}
                     >
-                      <Avatar src={character.avatarUrl} name={character.name} rarity={character.rarity as "R" | "SR" | "SSR"} size={40} className="mx-auto" />
+                      <Avatar src={character.avatarUrl} name={character.name} rarity={character.rarity as "R" | "SR" | "SSR" | "UR"} size={40} className="mx-auto" />
                       <span className="mt-1 block truncate text-[0.62rem] text-[color:var(--parchment-dim)]">{character.name}</span>
                       <span className="block text-[0.56rem] text-[color:var(--parchment-muted)]">羁绊 {character.bondLevel}</span>
                       {selected ? <Check size={11} className="absolute right-1 top-1 text-[color:var(--gold-300)]" /> : null}
@@ -712,7 +712,7 @@ const [scene, setScene] = useState<SceneKey>("council");
                         })
                       }
                     >
-                      <Avatar src={character.avatarUrl} name={character.name} rarity={character.rarity as "R" | "SR" | "SSR"} size={42} className="mx-auto" />
+                      <Avatar src={character.avatarUrl} name={character.name} rarity={character.rarity as "R" | "SR" | "SSR" | "UR"} size={42} className="mx-auto" />
                       <span className="mt-1 block truncate text-[0.66rem] text-[color:var(--parchment-dim)]">{character.name}</span>
                     </button>
                   );

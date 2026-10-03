@@ -5,6 +5,7 @@
  */
 
 export const CHARACTER_ASSETS: Record<string, { portraitUrl: string; avatarUrl: string }> = {
+  seraphina_aurelian: { portraitUrl: "/aetherfall-assets/seraphina_aurelian.png", avatarUrl: "/aetherfall-assets/seraphina_aurelian_avatar.svg" },
   adrian: { portraitUrl: "/aetherfall-assets/adrian_8067e277.jpg", avatarUrl: "/aetherfall-assets/adrian_c0d665d6.jpg" },
   maevrin: { portraitUrl: "/aetherfall-assets/maevrin_626f5a89.jpg", avatarUrl: "/aetherfall-assets/maevrin_992c392d.jpg" },
   viola: { portraitUrl: "/aetherfall-assets/viola_854f816a.jpg", avatarUrl: "/aetherfall-assets/viola_60625126.jpg" },

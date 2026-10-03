@@ -4,7 +4,7 @@
  * 全部数值来自服务端；装备加成清晰展示（基础 / 加成 / 合计）
  */
 import { useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "wouter";
+import { Link, useLocation, useParams, useSearch } from "wouter";
 import { toast } from "sonner";
 import { ArrowLeft, ArrowUp, BookOpen, Gift, Heart, Shield, Sparkles, Swords, TrendingUp, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,7 @@ import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import { PageSection } from "@/components/game/GameShell";
 import { ELEMENT_ICON, JOB_ICON } from "@/components/game/GameIcons";
+import { PageMusic } from "@/components/game/PageMusic";
 import { Avatar, ELEMENT_COLOR, ELEMENT_NAME, EmptyState, ErrorState, GoldRule, JOB_NAME, JOB_ROLE_TEXT, Panel, ProgressBar, RarityBadge, SectionTitle, SkeletonState, StatRow, Tag } from "@/components/game/ui";
 
 const STAT_NAME: Record<string, string> = {
@@ -38,14 +39,32 @@ const SLOT_NAME: Record<string, string> = {
   accessory: "饰品",
 };
 
+const DETAIL_TABS = ["stats", "skills", "equip", "bond", "lore"] as const;
+type DetailTab = (typeof DETAIL_TABS)[number];
+
+function tabFromSearch(search: string): DetailTab {
+  const tab = new URLSearchParams(search).get("tab");
+  return DETAIL_TABS.includes(tab as DetailTab) ? (tab as DetailTab) : "stats";
+}
+
 export default function CharacterDetail() {
   const params = useParams<{ charKey: string }>();
   const charKey = params.charKey ?? "";
+  const [, navigate] = useLocation();
+  const search = useSearch();
   const utils = trpc.useUtils();
 
   const detail = trpc.character.detail.useQuery({ charKey }, { enabled: Boolean(charKey) });
+  const companions = trpc.character.roster.useQuery({ filter: "owned", sort: "rarity" });
+  const requestedTab = useMemo(() => tabFromSearch(search), [search]);
+  const [activeTab, setActiveTab] = useState<DetailTab>(requestedTab);
   const [levelTimes, setLevelTimes] = useState(1);
   const [equipSlot, setEquipSlot] = useState<string | null>(null);
+
+  useEffect(() => {
+    setActiveTab(requestedTab);
+    setEquipSlot(null);
+  }, [charKey, requestedTab]);
 
   const levelUp = trpc.character.levelUp.useMutation({
     onSuccess: async (result) => {
@@ -109,18 +128,24 @@ export default function CharacterDetail() {
 
   if (detail.isLoading) {
     return (
-      <PageSection title="角色详情">
-        <SkeletonState rows={5} />
-      </PageSection>
+      <>
+        <PageMusic src="/aetherfall-assets/keep-theme.mp3" areaName="同伴" />
+        <PageSection title="角色详情">
+          <SkeletonState rows={5} />
+        </PageSection>
+      </>
     );
   }
 
   if (detail.isError || !detail.data) {
     return (
-      <PageSection title="角色详情">
-        <ErrorState message={detail.error?.message ?? "角色读取失败"} onRetry={() => detail.refetch()} />
-        <Link href="/roster" className="mt-3 inline-block text-xs text-[color:var(--parchment-muted)] underline">返回名册</Link>
-      </PageSection>
+      <>
+        <PageMusic src="/aetherfall-assets/keep-theme.mp3" areaName="同伴" />
+        <PageSection title="角色详情">
+          <ErrorState message={detail.error?.message ?? "角色读取失败"} onRetry={() => detail.refetch()} />
+          <Link href="/roster" className="mt-3 inline-block text-xs text-[color:var(--parchment-muted)] underline">返回名册</Link>
+        </PageSection>
+      </>
     );
   }
 
@@ -129,8 +154,19 @@ export default function CharacterDetail() {
   const JobIcon = JOB_ICON[config.job as keyof typeof JOB_ICON];
   const ElementIcon = ELEMENT_ICON[config.element as keyof typeof ELEMENT_ICON];
   const totalStats = Object.fromEntries(Object.entries(data.stats).map(([key, value]) => [key, Number(value) + Number((data.equipmentBonus as Record<string, number>)[key] ?? 0)]));
+  const characterHref = (nextCharKey: string) => `/character/${encodeURIComponent(nextCharKey)}?tab=${activeTab}`;
+  const selectTab = (value: string) => {
+    if (!DETAIL_TABS.includes(value as DetailTab)) return;
+    const tab = value as DetailTab;
+    const params = new URLSearchParams(search);
+    params.set("tab", tab);
+    setActiveTab(tab);
+    navigate(`/character/${encodeURIComponent(charKey)}?${params.toString()}`, { replace: true });
+  };
 
   return (
+    <>
+    <PageMusic src="/aetherfall-assets/keep-theme.mp3" areaName="同伴" />
     <PageSection
       title={config.name}
       eyebrow={`${config.title} · ${JOB_NAME[config.job]} · ${config.race} · ${config.faction}`}
@@ -151,9 +187,52 @@ export default function CharacterDetail() {
         </div>
       }
     >
-      <div className="grid gap-4 lg:grid-cols-[300px_1fr]">
+      <div className="grid gap-4 lg:grid-cols-[480px_1fr]">
         {/* 立绘与基本信息 */}
-        <div className="space-y-3">
+        <div className="space-y-3 lg:grid lg:grid-cols-[164px_minmax(0,1fr)] lg:items-start lg:gap-3 lg:space-y-0">
+          <Panel className="p-2.5">
+            <SectionTitle
+              eyebrow="Companions"
+              title="切换同伴"
+              action={<span className="text-numeric text-[0.65rem] text-[color:var(--parchment-muted)]">{companions.data?.list.length ?? 0} 名</span>}
+            />
+            <GoldRule />
+            {companions.isLoading ? (
+              <div className="space-y-1.5">
+                {[0, 1, 2].map((row) => <div key={row} className="h-10 animate-pulse rounded-sm bg-[color:var(--ink-800)]" />)}
+              </div>
+            ) : companions.data?.list.length ? (
+              <div className="max-h-60 space-y-1.5 overflow-y-auto pr-1 lg:max-h-[680px]">
+                {companions.data.list.map((member) => {
+                  const current = member.charKey === charKey;
+                  return (
+                    <Link
+                      key={member.charKey}
+                      href={characterHref(member.charKey)}
+                      aria-current={current ? "page" : undefined}
+                      className={cn(
+                        "card-tap flex items-center gap-2 rounded-sm border px-2 py-1.5 transition-colors",
+                        current
+                          ? "border-[color:var(--gold-300)] bg-[color:var(--gold-900)]/25"
+                          : "border-[color:var(--ink-500)]/55 bg-[color:var(--ink-800)]/45 hover:border-[color:var(--gold-600)]/70",
+                      )}
+                    >
+                      <Avatar src={member.avatarUrl ?? member.portraitUrl} name={member.name} rarity={member.rarity as "R" | "SR" | "SSR" | "UR"} size={32} />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-xs text-[color:var(--parchment)]">{member.name}</span>
+                        <span className="block truncate text-[0.6rem] text-[color:var(--parchment-muted)]">LV.{member.level} · {JOB_NAME[member.job]}</span>
+                      </span>
+                      {current ? <span className="text-[0.6rem] text-[color:var(--gold-300)]">当前</span> : null}
+                    </Link>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="py-2 text-xs text-[color:var(--parchment-muted)]">尚未拥有同伴。</p>
+            )}
+          </Panel>
+
+          <div className="space-y-3">
           <Panel className="overflow-hidden p-0">
             <div className="relative">
               {config.portraitUrl ? (
@@ -165,7 +244,7 @@ export default function CharacterDetail() {
               )}
               <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-[color:var(--ink-950)] to-transparent p-3 pt-10">
                 <div className="flex items-center gap-2">
-                  <RarityBadge rarity={config.rarity as "R" | "SR" | "SSR"} />
+                  <RarityBadge rarity={config.rarity as "R" | "SR" | "SSR" | "UR"} />
                   <Tag tone="neutral">{config.race}</Tag>
                   {data.owned ? <Tag tone="good">已招募</Tag> : <Tag tone="danger">未招募</Tag>}
                 </div>
@@ -239,11 +318,15 @@ export default function CharacterDetail() {
               <EmptyState title="尚未招募该角色" hint="可在「招募」中通过卡池获得。未拥有的角色同样可以在名册中查看设定与数值。" icon={<Users size={20} />} action={<Link href="/recruit"><Button size="sm" className="btn-gold border-transparent text-[color:var(--ink-950)]">前往招募</Button></Link>} />
             </Panel>
           )}
+          </div>
         </div>
 
         {/* 详细内容 */}
         <div className="space-y-4">
-          <Tabs defaultValue="stats">
+          <Tabs
+            value={activeTab}
+            onValueChange={selectTab}
+          >
             <TabsList className="border border-[color:var(--ink-500)]/60 bg-[color:var(--ink-800)]/60">
               <TabsTrigger value="stats" className="text-xs data-[state=active]:bg-[color:var(--ink-700)] data-[state=active]:text-[color:var(--gold-300)]">属性</TabsTrigger>
               <TabsTrigger value="skills" className="text-xs data-[state=active]:bg-[color:var(--ink-700)] data-[state=active]:text-[color:var(--gold-300)]">技能</TabsTrigger>
@@ -507,7 +590,7 @@ export default function CharacterDetail() {
                 ) : (
                   <div className="space-y-2">
                     {data.relations.map((relation) => (
-                      <Link key={relation.charKey} href={`/character/${relation.charKey}`} className="card-tap flex items-center gap-3 rounded-sm border border-[color:var(--ink-500)]/50 bg-[color:var(--ink-800)]/45 p-2.5 hover:border-[color:var(--gold-600)]/60">
+                      <Link key={relation.charKey} href={characterHref(relation.charKey)} className="card-tap flex items-center gap-3 rounded-sm border border-[color:var(--ink-500)]/50 bg-[color:var(--ink-800)]/45 p-2.5 hover:border-[color:var(--gold-600)]/60">
                         <Avatar src={relation.avatarUrl} name={relation.name} size={38} />
                         <span className="min-w-0 flex-1">
                           <span className="flex items-center gap-2">
@@ -620,5 +703,6 @@ export default function CharacterDetail() {
         </DialogContent>
       </Dialog>
     </PageSection>
+    </>
   );
 }

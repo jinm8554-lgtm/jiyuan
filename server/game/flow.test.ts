@@ -13,7 +13,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { appRouter } from "../routers";
 import { getDb } from "../db";
 import type { TrpcContext } from "../_core/context";
-import { battles, characters, gameProfiles, nodeStates, playerCharacters, playerEquipments, playerItems, profileBuildings, profileMails, regionStates, shopPurchases, teams, users } from "../../drizzle/schema";
+import { battles, characters, gameProfiles, nodeStates, playerCharacters, playerEquipments, playerItems, profileBuildings, profileMails, profileQuests, regionStates, shopPurchases, teams, users } from "../../drizzle/schema";
 import { accrueProfile } from "../game/service";
 import { TUTORIAL_STEPS } from "../game/tutorial";
 
@@ -660,6 +660,52 @@ flowDescribe("核心流程：从建档到征服", () => {
     const active = quests.find((quest) => quest.status !== "completed");
     if (active) {
       await expect(player.keep.claimQuest({ questKey: active.questKey })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    }
+  }, 90_000);
+
+  it("8a. 控制度任务会读取现有地区状态，已提前达标的旧存档不会卡住主线", async () => {
+    const [questBefore] = await db
+      .select()
+      .from(profileQuests)
+      .where(and(eq(profileQuests.profileId, profileId), eq(profileQuests.questKey, "mq_ch3_02")))
+      .limit(1);
+    const [followerBefore] = await db
+      .select()
+      .from(profileQuests)
+      .where(and(eq(profileQuests.profileId, profileId), eq(profileQuests.questKey, "mq_ch4_01")))
+      .limit(1);
+    const [regionBefore] = await db
+      .select()
+      .from(regionStates)
+      .where(and(eq(regionStates.profileId, profileId), eq(regionStates.regionKey, "silverpine")))
+      .limit(1);
+
+    expect(questBefore).toBeTruthy();
+    expect(regionBefore).toBeTruthy();
+
+    try {
+      await db
+        .update(profileQuests)
+        .set({ status: "active", progress: { "0": 1, "1": 1, "2": 0 }, completedAt: null })
+        .where(eq(profileQuests.id, questBefore.id));
+      await db.update(regionStates).set({ controlPercent: 100 }).where(eq(regionStates.id, regionBefore.id));
+
+      const questList = await player.keep.quests();
+      const synced = questList.find((quest) => quest.questKey === "mq_ch3_02");
+      expect(synced?.status).toBe("completed");
+      expect(synced?.objectives[2]).toMatchObject({ current: 40, target: 40, done: true });
+    } finally {
+      await db
+        .update(profileQuests)
+        .set({ status: questBefore.status, progress: questBefore.progress, completedAt: questBefore.completedAt })
+        .where(eq(profileQuests.id, questBefore.id));
+      if (followerBefore) {
+        await db
+          .update(profileQuests)
+          .set({ status: followerBefore.status, progress: followerBefore.progress, completedAt: followerBefore.completedAt })
+          .where(eq(profileQuests.id, followerBefore.id));
+      }
+      await db.update(regionStates).set({ controlPercent: regionBefore.controlPercent }).where(eq(regionStates.id, regionBefore.id));
     }
   }, 90_000);
 

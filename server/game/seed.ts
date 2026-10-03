@@ -1,4 +1,3 @@
-import { sql } from "drizzle-orm";
 import {
   buildings,
   characters,
@@ -99,8 +98,8 @@ export async function seedContent(options: { force?: boolean } = {}) {
     "charKey",
     CHARACTER_SEEDS.map((char) => ({
       ...char,
-      status: "published",
-      inRecruitPool: true,
+      status: char.status ?? "published",
+      inRecruitPool: char.inRecruitPool ?? true,
       contentRating: "all-ages",
     })) as unknown as Array<Record<string, unknown>>,
   );
@@ -108,7 +107,7 @@ export async function seedContent(options: { force?: boolean } = {}) {
   return { ok: true as const, counts };
 }
 
-/** 启动时调用：仅当配置表为空时写入（不影响后台改动） */
+/** 启动时调用：幂等补入新增的内置内容，不覆盖后台已经修改的配置。 */
 let seedPromise: Promise<unknown> | null = null;
 export function ensureSeeded() {
   if (!seedPromise) {
@@ -116,8 +115,6 @@ export function ensureSeeded() {
       try {
         const db = await getDb();
         if (!db) return;
-        const [row] = await db.select({ count: sql<number>`count(*)` }).from(characters);
-        if (Number(row?.count ?? 0) > 0) return;
         const result = await seedContent();
         console.log("[seed] 内置策划配置已写入:", result);
       } catch (error) {

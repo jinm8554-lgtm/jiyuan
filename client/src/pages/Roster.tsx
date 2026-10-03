@@ -118,7 +118,7 @@ export default function Roster() {
       <PageMusic src="/aetherfall-assets/keep-theme.mp3" areaName="同伴" />
       <PageSection
         title="同伴 · 名册"
-      eyebrow={`已招募 ${summary.owned}/${summary.total} · 英杰 ${summary.ssrOwned}/${summary.ssrTotal} · 总战力 ${summary.totalPower.toLocaleString("zh-CN")}`}
+      eyebrow={`已招募 ${summary.owned}/${summary.total} · 天命 ${summary.urOwned}/${summary.urTotal} · 英杰 ${summary.ssrOwned}/${summary.ssrTotal} · 总战力 ${summary.totalPower.toLocaleString("zh-CN")}`}
       actions={
         <div className="flex flex-wrap items-center gap-2">
           <Select value={filter} onValueChange={(value) => setFilter(value as "all" | "owned" | "missing")}>
@@ -148,6 +148,7 @@ export default function Roster() {
             </SelectTrigger>
             <SelectContent className="border-[color:var(--ink-500)]/70 bg-[color:var(--ink-800)]">
               <SelectItem value={ALL}>全部品质</SelectItem>
+              <SelectItem value="UR">天命 UR</SelectItem>
               <SelectItem value="SSR">英杰 SSR</SelectItem>
               <SelectItem value="SR">精锐 SR</SelectItem>
               <SelectItem value="R">常民 R</SelectItem>
@@ -191,7 +192,7 @@ export default function Roster() {
                     href={`/character/${item.charKey}`}
                     className={cn(
                       "card-tap card-lift group relative overflow-hidden rounded-sm border bg-[color:var(--ink-800)]/60",
-                      item.rarity === "SSR" ? "rarity-SSR border-[#E0B84C]/90" : item.rarity === "SR" ? "rarity-SR border-[#A9B7C6]/70" : "rarity-R border-[#B08050]/60",
+                      item.rarity === "UR" ? "border-[#F4D77A] shadow-[0_0_22px_-10px_rgba(123,189,255,0.9)]" : item.rarity === "SSR" ? "rarity-SSR border-[#E0B84C]/90" : item.rarity === "SR" ? "rarity-SR border-[#A9B7C6]/70" : "rarity-R border-[#B08050]/60",
                       !item.owned && "opacity-60",
                     )}
                   >
@@ -208,7 +209,7 @@ export default function Roster() {
                         <div className="truncate text-[0.62rem] text-[color:var(--gold-300)]/85">{item.title}</div>
                       </div>
                       <div className="absolute left-1.5 top-1.5 flex flex-col gap-1">
-                        <RarityBadge rarity={item.rarity as "R" | "SR" | "SSR"} />
+                        <RarityBadge rarity={item.rarity as "R" | "SR" | "SSR" | "UR"} />
                         {item.isNew ? <Tag tone="aether">NEW</Tag> : null}
                       </div>
                       {inTeam ? (
@@ -301,7 +302,7 @@ export default function Roster() {
                         {member ? (
                           <>
                             <div className="flex items-center gap-2">
-                              <Avatar src={member.avatarUrl} name={member.name} rarity={member.rarity as "R" | "SR" | "SSR"} size={38} />
+                              <Avatar src={member.avatarUrl} name={member.name} rarity={member.rarity as "R" | "SR" | "SSR" | "UR"} size={38} />
                               <span className="min-w-0">
                                 <span className="block truncate text-xs text-[color:var(--parchment)]">{member.name}</span>
                                 <span className="block text-[0.6rem] text-[color:var(--parchment-muted)]">LV.{member.level} · {JOB_NAME[member.job]}</span>
@@ -345,7 +346,7 @@ export default function Roster() {
                         )}
                         title={`${item.name} · ${JOB_NAME[item.job]}`}
                       >
-                        <Avatar src={item.avatarUrl} name={item.name} rarity={item.rarity as "R" | "SR" | "SSR"} size={34} className="mx-auto" />
+                        <Avatar src={item.avatarUrl} name={item.name} rarity={item.rarity as "R" | "SR" | "SSR" | "UR"} size={34} className="mx-auto" />
                         <span className="mt-1 block truncate text-[0.58rem] text-[color:var(--parchment-dim)]">{item.name.slice(0, 3)}</span>
                       </button>
                     );

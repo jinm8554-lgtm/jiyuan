@@ -23,7 +23,7 @@ type CharacterRow = {
   charKey: string;
   name: string;
   title: string;
-  rarity: "R" | "SR" | "SSR";
+  rarity: "R" | "SR" | "SSR" | "UR";
   rarityLabel: string;
   job: string;
   race: string;
@@ -43,7 +43,7 @@ type EditorState = {
   charKey: string;
   name: string;
   title: string;
-  rarity: "R" | "SR" | "SSR";
+  rarity: "R" | "SR" | "SSR" | "UR";
   job: string;
   race: string;
   weapon: string;
@@ -279,6 +279,7 @@ export function CharacterLibrary() {
             </SelectTrigger>
             <SelectContent className="border-[color:var(--ink-500)]/70 bg-[color:var(--ink-800)]">
               <SelectItem value={ALL}>全部品质</SelectItem>
+              <SelectItem value="UR">UR</SelectItem>
               <SelectItem value="SSR">SSR</SelectItem>
               <SelectItem value="SR">SR</SelectItem>
               <SelectItem value="R">R</SelectItem>
@@ -375,6 +376,7 @@ export function CharacterLibrary() {
                       <SelectContent className="border-[color:var(--ink-500)]/70 bg-[color:var(--ink-800)]">
                         <SelectItem value="R">R 常民</SelectItem>
                         <SelectItem value="SR">SR 精锐</SelectItem>
+                        <SelectItem value="UR">UR 天命</SelectItem>
                         <SelectItem value="SSR">SSR 英杰</SelectItem>
                       </SelectContent>
                     </Select>

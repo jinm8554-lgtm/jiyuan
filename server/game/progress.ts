@@ -81,6 +81,8 @@ export async function advanceQuestProgress(profileId: number, events: ProgressEv
   // 上下文（用于 level_character / own_character 等目标的即时判定）
   const owned = await db.select().from(playerCharacters).where(eq(playerCharacters.profileId, profileId));
   const ownedKeys = new Set(owned.map((o) => o.charKey));
+  const regionRows = await db.select().from(regionStates).where(eq(regionStates.profileId, profileId));
+  const regionControl = new Map(regionRows.map((region) => [region.regionKey, region.controlPercent]));
 
   const updated: QuestProgressResult["updated"] = [];
   const completedKeys: string[] = [];
@@ -100,6 +102,13 @@ export async function advanceQuestProgress(profileId: number, events: ProgressEv
       // 直接状态型目标（不依赖事件）
       if (objective.type === "own_character" && (objective.key ?? "any") !== "any" && ownedKeys.has(String(objective.key))) {
         current = Math.max(current, target);
+      }
+      if (objective.type === "control_region") {
+        const regionKey = objective.key ?? "any";
+        const currentControl = regionKey === "any"
+          ? Math.max(0, ...regionRows.map((region) => region.controlPercent))
+          : (regionControl.get(regionKey) ?? 0);
+        current = Math.max(current, Math.min(target, currentControl));
       }
 
       for (const event of events) {

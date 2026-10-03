@@ -6,7 +6,7 @@ import { getDb } from "../db";
 import { NODE_BY_KEY, NODE_SEEDS } from "../game/data/world";
 import { SKILL_BY_KEY, skillPowerAtLevel } from "../game/data/skills";
 import { createLeaderCommandState, LEADERSHIP_BY_KEY } from "../game/leadership";
-import { JOB_ROLE, MAX_LEVEL_BY_ASCENSION, round, type JobKey, type StatBlock } from "../game/formulas";
+import { JOB_ROLE, MAX_LEVEL_BY_ASCENSION, round, type JobKey, type RarityKey, type StatBlock } from "../game/formulas";
 import { advanceQuestProgress, recomputeRegionControl, syncUnlocks } from "../game/progress";
 import { completeTutorialBusinessAction } from "../game/tutorial";
 import {
@@ -52,7 +52,7 @@ async function buildUnits(profileId: number, node: (typeof NODE_SEEDS)[number], 
     side: "ally",
     job: entry.config.job as JobKey,
     element: entry.config.element as BattleUnitInput["element"],
-    rarity: entry.config.rarity as "R" | "SR" | "SSR",
+    rarity: entry.config.rarity as RarityKey,
     level: entry.level,
     row: (formation[String(entry.playerCharId)] as "front" | "back") ?? JOB_ROLE[entry.config.job as JobKey] ?? (index < 2 ? "front" : "back"),
     stats: entry.stats as StatBlock,

@@ -330,7 +330,7 @@ export default function Keep() {
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                   {activeTeam.members.filter((member): member is NonNullable<typeof member> => Boolean(member)).map((member) => (
                     <Link key={member.playerCharId} href={`/character/${member.charKey}`} className="card-tap card-lift rounded-sm border border-[color:var(--ink-500)]/60 bg-[color:var(--ink-800)]/60 p-2 text-center">
-                      <Avatar src={member.avatarUrl ?? data.roster.find((row) => row.charKey === member.charKey)?.avatarUrl ?? null} name={member.name} rarity={member.rarity as "R" | "SR" | "SSR"} size={48} className="mx-auto" />
+                      <Avatar src={member.avatarUrl ?? data.roster.find((row) => row.charKey === member.charKey)?.avatarUrl ?? null} name={member.name} rarity={member.rarity as "R" | "SR" | "SSR" | "UR"} size={48} className="mx-auto" />
                       <div className="mt-1.5 truncate text-xs text-[color:var(--parchment)]">{member.name}</div>
                       <div className="text-[0.62rem] text-[color:var(--parchment-muted)]">
                         LV.{member.level} · {member.row === "front" ? "前排" : "后排"}

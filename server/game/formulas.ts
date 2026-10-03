@@ -4,7 +4,7 @@
  */
 
 export type ElementKey = "physical" | "fire" | "frost" | "lightning" | "holy" | "shadow";
-export type RarityKey = "R" | "SR" | "SSR";
+export type RarityKey = "R" | "SR" | "SSR" | "UR";
 export type JobKey = "warrior" | "knight" | "mage" | "ranger" | "cleric" | "assassin" | "sage";
 
 export type StatKey = "hp" | "atk" | "def" | "mag" | "res" | "spd" | "crit" | "critDmg" | "hit" | "dodge";
@@ -12,11 +12,11 @@ export type StatBlock = Record<StatKey, number>;
 
 export const STAT_KEYS: StatKey[] = ["hp", "atk", "def", "mag", "res", "spd", "crit", "critDmg", "hit", "dodge"];
 
-export const RARITY_LABEL: Record<RarityKey, string> = { R: "常民", SR: "精锐", SSR: "英杰" };
-export const RARITY_FACTOR: Record<RarityKey, number> = { R: 1, SR: 1.12, SSR: 1.25 };
+export const RARITY_LABEL: Record<RarityKey, string> = { R: "常民", SR: "精锐", SSR: "英杰", UR: "天命" };
+export const RARITY_FACTOR: Record<RarityKey, number> = { R: 1, SR: 1.12, SSR: 1.25, UR: 1.36 };
 /** 重复角色转化货币（星辉信物）与羁绊收益 */
-export const RARITY_DUPLICATE_SHARDS: Record<RarityKey, number> = { R: 6, SR: 20, SSR: 60 };
-export const RARITY_DUPLICATE_BOND: Record<RarityKey, number> = { R: 10, SR: 25, SSR: 50 };
+export const RARITY_DUPLICATE_SHARDS: Record<RarityKey, number> = { R: 6, SR: 20, SSR: 60, UR: 150 };
+export const RARITY_DUPLICATE_BOND: Record<RarityKey, number> = { R: 10, SR: 25, SSR: 50, UR: 100 };
 export const MAX_LEVEL_BY_ASCENSION = (ascension: number) => 60 + Math.max(0, Math.min(4, ascension)) * 5;
 export const ASCENSION_STAT_BONUS = 0.04;
 

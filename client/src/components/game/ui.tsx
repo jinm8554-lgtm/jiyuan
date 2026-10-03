@@ -2,7 +2,7 @@
  * 游戏通用 UI 原子组件
  * 设计规范见 docs/02-视觉设计提案.md：
  *  - 面板 = 铁灰底 + 细内线 + 金边可选
- *  - 稀有度由边框与光晕区分（R 铜 / SR 银 / SSR 赤金）
+ *  - 稀有度由边框与光晕区分（R 铜 / SR 银 / SSR 赤金 / UR 星辉金）
  *  - 图标与文字层级固定：eyebrow(小写标) → 主标(display) → 正文(parchment-dim)
  */
 import type { ReactNode } from "react";
@@ -11,12 +11,13 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { RESOURCE_ICON } from "./GameIcons";
 
-export type Rarity = "R" | "SR" | "SSR";
+export type Rarity = "R" | "SR" | "SSR" | "UR";
 
 export const RARITY_STYLE: Record<Rarity, { label: string; border: string; text: string; glow: string; ring: string }> = {
   R: { label: "常民", border: "border-[#B08050]/70", text: "text-[#C9995F]", glow: "", ring: "ring-[#B08050]/40" },
   SR: { label: "精锐", border: "border-[#A9B7C6]/85", text: "text-[#C6D2DE]", glow: "shadow-[inset_0_0_18px_-8px_rgba(169,183,198,0.5)]", ring: "ring-[#A9B7C6]/50" },
   SSR: { label: "英杰", border: "border-[#E0B84C]/95", text: "text-[#E8CE79]", glow: "shadow-[inset_0_0_22px_-8px_rgba(224,184,76,0.55)]", ring: "ring-[#E0B84C]/60" },
+  UR: { label: "天命", border: "border-[#F4D77A]", text: "text-[#FFF0AD]", glow: "shadow-[inset_0_0_26px_-7px_rgba(244,215,122,0.75),0_0_16px_-6px_rgba(123,189,255,0.7)]", ring: "ring-[#F4D77A]/75" },
 };
 
 export const ELEMENT_COLOR: Record<string, string> = {

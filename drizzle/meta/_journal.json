@@ -120,6 +120,13 @@
       "when": 1790726400000,
       "tag": "0016_recruit_cost_adjustment",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "5",
+      "when": 1791072000000,
+      "tag": "0017_ur_character_rarity",
+      "breakpoints": true
     }
   ]
 }

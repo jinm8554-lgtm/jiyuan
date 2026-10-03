@@ -24,12 +24,12 @@ import { resolveProfile } from "./_shared";
 
 /** 升级消耗：与等级线性相关，全部由服务端计算 */
 const levelUpCost = (level: number, rarity: string) => {
-  const factor = rarity === "SSR" ? 1.5 : rarity === "SR" ? 1.25 : 1;
+  const factor = rarity === "UR" ? 1.8 : rarity === "SSR" ? 1.5 : rarity === "SR" ? 1.25 : 1;
   return { gold: round(60 * level * factor), exp: expToNextLevel(level) };
 };
 
 const skillUpgradeCost = (skillLevel: number, rarity: string) => {
-  const factor = rarity === "SSR" ? 2 : rarity === "SR" ? 1.5 : 1;
+  const factor = rarity === "UR" ? 2.5 : rarity === "SSR" ? 2 : rarity === "SR" ? 1.5 : 1;
   return { gold: round(180 * skillLevel * factor), aether: round(6 * skillLevel * factor) };
 };
 
@@ -88,7 +88,7 @@ export const characterRouter = router({
       if (input?.job) list = list.filter((item) => item.job === input.job);
       if (input?.rarity) list = list.filter((item) => item.rarity === input.rarity);
 
-      const rarityRank = { SSR: 3, SR: 2, R: 1 } as Record<string, number>;
+      const rarityRank = { UR: 4, SSR: 3, SR: 2, R: 1 } as Record<string, number>;
       const sort = input?.sort ?? "rarity";
       list.sort((a, b) => {
         if (sort === "power") return b.power - a.power;
@@ -105,6 +105,8 @@ export const characterRouter = router({
           owned: owned.length,
           ssrOwned: owned.filter((entry) => entry.config.rarity === "SSR").length,
           ssrTotal: allConfigs.filter((config) => config.rarity === "SSR").length,
+          urOwned: owned.filter((entry) => entry.config.rarity === "UR").length,
+          urTotal: allConfigs.filter((config) => config.rarity === "UR").length,
           totalPower: owned.reduce((sum, entry) => sum + entry.power, 0),
           topPower: owned.reduce((max, entry) => Math.max(max, entry.power), 0),
         },
@@ -550,7 +552,7 @@ export const characterRouter = router({
       let costGold = 0;
       for (let i = 0; i < input.times; i += 1) {
         if (level >= craftCap) break;
-        costIron += round(24 * level * (config.rarity === "SSR" ? 2 : config.rarity === "SR" ? 1.4 : 1));
+        costIron += round(24 * level * (config.rarity === "UR" ? 2.5 : config.rarity === "SSR" ? 2 : config.rarity === "SR" ? 1.4 : 1));
         costGold += round(90 * level);
         level += 1;
       }

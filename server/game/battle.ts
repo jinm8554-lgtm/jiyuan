@@ -8,6 +8,7 @@ import {
   round,
   type ElementKey,
   type JobKey,
+  type RarityKey,
   type StatBlock,
 } from "./formulas";
 import { SKILL_BY_KEY, skillEffectValueAtLevel, type SkillSeed } from "./data/skills";
@@ -43,7 +44,7 @@ export type BattleUnit = {
   side: UnitSide;
   job: JobKey;
   element: ElementKey;
-  rarity: "R" | "SR" | "SSR";
+  rarity: RarityKey;
   level: number;
   row: "front" | "back";
   stats: StatBlock;
@@ -125,7 +126,7 @@ export type BattleUnitInput = {
   side: UnitSide;
   job: JobKey;
   element: ElementKey;
-  rarity: "R" | "SR" | "SSR";
+  rarity: RarityKey;
   level: number;
   row: "front" | "back";
   stats: Partial<StatBlock>;
@@ -179,6 +180,10 @@ function withKeepBonus(unit: BattleUnitInput, bonus: BattleContext["keepBonus"])
 
 export function createUnitFromInput(input: BattleUnitInput, ctx: BattleContext): BattleUnit {
   const stats = withKeepBonus(input, ctx.keepBonus);
+  if (input.side === "ally" && input.skills.some((skill) => skill.skillKey === "sk_genius_swordsmanship")) {
+    stats.atk = round(stats.atk * 1.12);
+    stats.spd = round(stats.spd * 1.12);
+  }
   const hp = Math.max(1, stats.hp);
   return {
     id: input.id,
@@ -435,6 +440,9 @@ export function executeAction(state: BattleState, action: BattleAction, rng: () 
   const isDefend = action.actionKey === "defend";
   const skillEntry = isDefend ? undefined : SKILL_BY_KEY.get(action.actionKey);
   const skillLevel = actor.skills.find((s) => s.skillKey === action.actionKey)?.level ?? 1;
+  const nextSkillBoost = actor.statuses.find((status) => status.sourceKey === "sk_first_light_break" && status.stat === "skillDamage");
+  const nextSkillBonus = skillEntry?.kind === "active" && nextSkillBoost ? nextSkillBoost.value : 0;
+  if (nextSkillBoost && nextSkillBonus > 0) actor.statuses = actor.statuses.filter((status) => status !== nextSkillBoost);
 
   const allies = livingUnits(state, actor.side);
   const enemies = livingUnits(state, actor.side === "ally" ? "enemy" : "ally");
@@ -472,6 +480,8 @@ export function executeAction(state: BattleState, action: BattleAction, rng: () 
     text: `${actor.name} 使用「${skillEntry.name}」`,
   });
 
+  let activeSkillHit = false;
+
   for (const effect of skillEntry.effects) {
     const type = String(effect.type ?? "");
     const rawValue = Number(effect.value ?? 0);
@@ -485,7 +495,14 @@ export function executeAction(state: BattleState, action: BattleAction, rng: () 
       const targets = effectScope === "all_enemies" ? enemies : target ? [target] : [];
       for (const t of targets) {
         if (!t.alive) continue;
+        const wasAlive = t.alive;
         if (actor.side === "ally") actor.energy = Math.min(actor.energyMax, actor.energy + 15);
+        let damagePower = value;
+        const lowHpThreshold = Number(effect.lowHpThreshold ?? 0);
+        if (lowHpThreshold > 0 && t.hp / Math.max(1, t.maxHp) * 100 < lowHpThreshold) {
+          damagePower = round(damagePower * (1 + Number(effect.lowHpBonus ?? 0) / 100));
+        }
+        if (nextSkillBonus > 0) damagePower = round(damagePower * (1 + nextSkillBonus / 100));
         const result = resolveDamage({
           attacker: statsFor(actor),
           defender: {
@@ -493,7 +510,7 @@ export function executeAction(state: BattleState, action: BattleAction, rng: () 
             def: defenseValue(t, skillEntry.element, Number(effect.pierce ?? 0)),
             res: defenseValue(t, skillEntry.element, Number(effect.pierce ?? 0)),
           },
-          power: value,
+          power: damagePower,
           attackElement: skillEntry.element,
           roll: rng(),
         });
@@ -501,9 +518,24 @@ export function executeAction(state: BattleState, action: BattleAction, rng: () 
           events.push({ turn: state.turn, type: "info", actorId: actor.id, targetId: t.id, targetName: t.name, text: `${actor.name} 的攻击被 ${t.name} 闪过。` });
           continue;
         }
+        activeSkillHit = true;
         const reduction = actor.side === "enemy" ? clamp(ctxReduction(state), 0, 0.6) : clamp(state.keepBonusReduction ?? 0, 0, 0.6);
         const finalValue = Math.max(1, round(result.value * (1 - reduction)));
         applyDamage(t, finalValue, state, events, state.turn, actor);
+        if (wasAlive && !t.alive && skillEntry.skillKey === "sk_rift_sun_sweep") {
+          actor.energy = Math.min(actor.energyMax, actor.energy + 8);
+        }
+        if (wasAlive && !t.alive && skillEntry.skillKey === "sk_first_light_break") {
+          actor.statuses.push({
+            id: `buff_skillDamage_${actor.id}`,
+            type: "buff",
+            stat: "skillDamage",
+            value: 20,
+            duration: 99,
+            sourceKey: "sk_first_light_break",
+            label: "破晓乘势",
+          });
+        }
         events.push({
           turn: state.turn,
           type: "damage",
@@ -615,6 +647,36 @@ export function executeAction(state: BattleState, action: BattleAction, rng: () 
         t.energy = clamp(t.energy + value, 0, t.energyMax);
       }
       continue;
+    }
+  }
+
+  if (
+    activeSkillHit
+    && actor.side === "ally"
+    && skillEntry.kind === "active"
+    && skillEntry.skillKey !== "sk_basic_attack"
+    && actor.skills.some((skill) => skill.skillKey === "sk_genius_swordsmanship")
+  ) {
+    let insight = actor.statuses.find((status) => status.sourceKey === "sk_genius_swordsmanship" && status.stat === "swordInsight");
+    const stacks = Math.min(3, (insight?.value ?? 0) + 1);
+    if (insight) insight.value = stacks;
+    else {
+      insight = { id: `buff_swordInsight_${actor.id}`, type: "buff", stat: "swordInsight", value: stacks, duration: 99, sourceKey: "sk_genius_swordsmanship", label: "剑悟" };
+      actor.statuses.push(insight);
+    }
+    const setStackBuff = (stat: "atk" | "crit", perStack: number) => {
+      const existing = actor.statuses.find((status) => status.sourceKey === "sk_genius_swordsmanship" && status.stat === stat);
+      if (existing) existing.value = stacks * perStack;
+      else actor.statuses.push({ id: `buff_${stat}_${actor.id}`, type: "buff", stat, value: stacks * perStack, duration: 99, sourceKey: "sk_genius_swordsmanship", label: "剑悟" });
+    };
+    setStackBuff("atk", 8);
+    setStackBuff("crit", 4);
+
+    const refreshed = actor.statuses.some((status) => status.sourceKey === "sk_genius_swordsmanship" && status.stat === "swordInsightRefreshUsed");
+    if (stacks === 3 && !refreshed) {
+      actor.cooldowns.sk_rift_sun_sweep = 0;
+      actor.statuses.push({ id: `buff_swordInsightRefreshUsed_${actor.id}`, type: "buff", stat: "swordInsightRefreshUsed", value: 1, duration: 99, sourceKey: "sk_genius_swordsmanship", label: "剑理贯通" });
+      events.push({ turn: state.turn, type: "info", actorId: actor.id, actorName: actor.name, text: `${actor.name} 看破战局，「裂日横断」冷却已清除。` });
     }
   }
 

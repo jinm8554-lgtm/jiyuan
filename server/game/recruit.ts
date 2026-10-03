@@ -1,5 +1,8 @@
 import { RARITY_DUPLICATE_BOND, RARITY_DUPLICATE_SHARDS, type RarityKey } from "./formulas";
 
+/** 常驻招募只处理现有三档品质；UR 必须由独立活动显式开放。 */
+export type RecruitRarityKey = Exclude<RarityKey, "UR">;
+
 /**
  * 招募（抽取）引擎 —— 纯函数实现
  * 概率、保底、十连保底、重复转化全部由「卡池配置」驱动（来自数据库，前端不可覆盖）。
@@ -45,7 +48,7 @@ export type PityState = {
 export type DrawResult = {
   index: number;
   charKey: string;
-  rarity: RarityKey;
+  rarity: RecruitRarityKey;
   isNew: boolean;
   shards: number;
   bondExp: number;
@@ -58,7 +61,7 @@ export type DrawContext = {
   pool: PoolConfig;
   pity: PityState;
   /** 每个稀有度下可用于抽取的角色 key（已按 status/pool 过滤） */
-  candidates: Record<RarityKey, string[]>;
+  candidates: Record<RecruitRarityKey, string[]>;
   /** 玩家已拥有的角色 key（用于判定新角色 / 重复转化） */
   ownedKeys: ReadonlySet<string>;
   count: number;
@@ -66,8 +69,8 @@ export type DrawContext = {
   rng: () => number;
 };
 
-const RARITY_ORDER: RarityKey[] = ["R", "SR", "SSR"];
-const RARITY_INDEX: Record<RarityKey, number> = { R: 0, SR: 1, SSR: 2 };
+const RARITY_ORDER: RecruitRarityKey[] = ["R", "SR", "SSR"];
+const RARITY_INDEX: Record<RecruitRarityKey, number> = { R: 0, SR: 1, SSR: 2 };
 
 export function isPoolOpen(pool: Pick<PoolConfig, "enabled" | "openAt" | "closeAt">, now: Date): boolean {
   if (!pool.enabled) return false;
@@ -83,10 +86,10 @@ export function isPoolOpen(pool: Pick<PoolConfig, "enabled" | "openAt" | "closeA
 }
 
 /** 归一化后的基础概率表 */
-export function normalizeRates(rates: PoolRates): Record<RarityKey, number> {
-  const out: Record<RarityKey, number> = { R: 0, SR: 0, SSR: 0 };
+export function normalizeRates(rates: PoolRates): Record<RecruitRarityKey, number> {
+  const out: Record<RecruitRarityKey, number> = { R: 0, SR: 0, SSR: 0 };
   for (const entry of rates ?? []) {
-    const key = entry.rarity as RarityKey;
+    const key = entry.rarity as RecruitRarityKey;
     if (RARITY_ORDER.includes(key) && Number.isFinite(entry.rate) && entry.rate > 0) {
       out[key] += entry.rate;
     }
@@ -101,7 +104,7 @@ export function normalizeRates(rates: PoolRates): Record<RarityKey, number> {
  * 软保底：当 pullsSinceSSR >= softStart 时，每多一抽 SSR 概率 +softStep，
  * 该增量从 R 的概率中等量扣除（不足时继续从 SR 扣除）。
  */
-export function effectiveRates(pool: PoolConfig, pity: PityState): Record<RarityKey, number> {
+export function effectiveRates(pool: PoolConfig, pity: PityState): Record<RecruitRarityKey, number> {
   const base = normalizeRates(pool.rates);
   const softStart = pool.pity?.softStart ?? 9999;
   const softStep = pool.pity?.softStep ?? 0;
@@ -129,10 +132,10 @@ export function effectiveRates(pool: PoolConfig, pity: PityState): Record<Rarity
 }
 
 /** 依据概率表抽取稀有度 */
-export function rollRarity(rates: Record<RarityKey, number>, value: number): RarityKey {
+export function rollRarity(rates: Record<RecruitRarityKey, number>, value: number): RecruitRarityKey {
   const v = Math.min(0.999999, Math.max(0, value));
   let acc = 0;
-  for (const key of ["SSR", "SR", "R"] as RarityKey[]) {
+  for (const key of ["SSR", "SR", "R"] as RecruitRarityKey[]) {
     acc += rates[key];
     if (v < acc) return key;
   }
@@ -145,10 +148,10 @@ function pick<T>(list: T[], rng: () => number): T {
 
 /** 在高稀有度无候选时向下回退 */
 function resolveCandidate(
-  candidates: Record<RarityKey, string[]>,
-  rarity: RarityKey,
+  candidates: Record<RecruitRarityKey, string[]>,
+  rarity: RecruitRarityKey,
   rng: () => number,
-): { charKey: string; rarity: RarityKey } | null {
+): { charKey: string; rarity: RecruitRarityKey } | null {
   for (let i = RARITY_INDEX[rarity]; i >= 0; i -= 1) {
     const list = candidates[RARITY_ORDER[i]] ?? [];
     if (list.length > 0) return { charKey: pick(list, rng), rarity: RARITY_ORDER[i] };
@@ -169,8 +172,8 @@ function resolveCandidate(
  */
 export function drawMany(ctx: DrawContext): { results: DrawResult[]; pity: PityState } {
   const pool = ctx.pool;
-  const minRarity = (pool.pity?.tenPullMinRarity as RarityKey) ?? "SR";
-  const highestAvailable: RarityKey =
+  const minRarity = (pool.pity?.tenPullMinRarity as RecruitRarityKey) ?? "SR";
+  const highestAvailable: RecruitRarityKey =
     (ctx.candidates.SSR?.length ?? 0) > 0 ? "SSR" : (ctx.candidates.SR?.length ?? 0) > 0 ? "SR" : "R";
 
   const pity: PityState = { ...ctx.pity };

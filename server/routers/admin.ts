@@ -72,7 +72,7 @@ const charInput = z.object({
   charKey: z.string().min(2).max(64).regex(/^[a-z0-9_]+$/i, "仅允许字母、数字与下划线"),
   name: z.string().min(1).max(64),
   title: z.string().min(1).max(96),
-  rarity: z.enum(["R", "SR", "SSR"]),
+  rarity: z.enum(["R", "SR", "SSR", "UR"]),
   job: z.enum(["warrior", "knight", "mage", "ranger", "cleric", "assassin", "sage"]),
   race: z.string().min(1).max(32),
   weapon: z.string().min(1).max(64),
@@ -158,7 +158,7 @@ export const adminRouter = router({
         .object({
           search: z.string().max(64).optional(),
           status: z.enum(["all", "draft", "published", "archived"]).optional(),
-          rarity: z.enum(["all", "R", "SR", "SSR"]).optional(),
+          rarity: z.enum(["all", "R", "SR", "SSR", "UR"]).optional(),
         })
         .optional(),
     )

@@ -91,7 +91,7 @@ export const characters = mysqlTable(
     charKey: varchar("charKey", { length: 64 }).notNull(),
     name: varchar("name", { length: 64 }).notNull(),
     title: varchar("title", { length: 96 }).notNull(),
-    rarity: mysqlEnum("rarity", ["R", "SR", "SSR"]).notNull(),
+    rarity: mysqlEnum("rarity", ["R", "SR", "SSR", "UR"]).notNull(),
     job: mysqlEnum("job", ["warrior", "knight", "mage", "ranger", "cleric", "assassin", "sage"]).notNull(),
     race: varchar("race", { length: 32 }).notNull(),
     weapon: varchar("weapon", { length: 64 }).notNull(),

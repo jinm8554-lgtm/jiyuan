@@ -59,7 +59,9 @@ export const keepRouter = router({
     /** 旧档案仍会自愈；v2 新手档案在同伴页保存第一支远征队。 */
     const activeTeam = await ensureDefaultTeam(profile.id);
 
-    const questRows = await ensureQuests(profile.id);
+    let questRows = await ensureQuests(profile.id);
+    const stateProgress = await advanceQuestProgress(profile.id, []);
+    if (stateProgress.updated.length > 0) questRows = await ensureQuests(profile.id);
     const questConfigs = await db.select().from(quests);
     const questMap = new Map(questConfigs.map((q) => [q.questKey, q]));
 
@@ -379,7 +381,9 @@ export const keepRouter = router({
     const profile = await resolveProfile(ctx);
     const db = await getDb();
     if (!db) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "数据库连接暂不可用" });
-    const rows = await ensureQuests(profile.id);
+    let rows = await ensureQuests(profile.id);
+    const stateProgress = await advanceQuestProgress(profile.id, []);
+    if (stateProgress.updated.length > 0) rows = await ensureQuests(profile.id);
     const configs = await db.select().from(quests);
     const map = new Map(configs.map((c) => [c.questKey, c]));
     return rows

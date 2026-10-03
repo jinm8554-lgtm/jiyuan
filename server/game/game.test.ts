@@ -452,6 +452,43 @@ describe("战斗引擎", () => {
     expect(skillEffectValueAtLevel(buffSkill, 18, 5)).toBeGreaterThan(skillEffectValueAtLevel(buffSkill, 18, 1));
   });
 
+  it("塞拉菲娜的天才剑理提供开场强化、叠加剑悟并在三层刷新群攻", () => {
+    const state = startBattle([
+      makeAlly({
+        charKey: "seraphina_aurelian",
+        name: "塞拉菲娜·奥雷利安",
+        job: "warrior",
+        element: "holy",
+        rarity: "UR",
+        stats: { hp: 2000, atk: 200, def: 100, mag: 40, res: 90, spd: 100, crit: 10, critDmg: 150, hit: 200, dodge: 10 },
+        skills: [
+          { skillKey: "sk_basic_attack", level: 1 },
+          { skillKey: "sk_rift_sun_sweep", level: 1 },
+          { skillKey: "sk_first_light_break", level: 1 },
+          { skillKey: "sk_genius_swordsmanship", level: 1 },
+        ],
+      }),
+      makeEnemy({ stats: { hp: 100_000, atk: 10, def: 100, mag: 10, res: 100, spd: 10, crit: 0, critDmg: 150, hit: 100, dodge: 0 } }),
+    ], { nodeKey: "t", regionKey: "r", seed: 16 });
+
+    const seraphina = state.units.find((unit) => unit.charKey === "seraphina_aurelian")!;
+    const enemy = state.units.find((unit) => unit.side === "enemy")!;
+    expect(seraphina.stats.atk).toBe(224);
+    expect(seraphina.stats.spd).toBe(112);
+    seraphina.cooldowns.sk_rift_sun_sweep = 3;
+
+    for (let index = 0; index < 3; index += 1) {
+      seraphina.energy = 100;
+      seraphina.cooldowns.sk_first_light_break = 0;
+      executeAction(state, { unitId: seraphina.id, actionKey: "sk_first_light_break", targetId: enemy.id }, createRng(100 + index));
+    }
+
+    expect(seraphina.statuses.find((status) => status.stat === "swordInsight")?.value).toBe(3);
+    expect(seraphina.statuses.find((status) => status.stat === "atk" && status.sourceKey === "sk_genius_swordsmanship")?.value).toBe(24);
+    expect(seraphina.statuses.find((status) => status.stat === "crit" && status.sourceKey === "sk_genius_swordsmanship")?.value).toBe(12);
+    expect(seraphina.cooldowns.sk_rift_sun_sweep).toBe(0);
+  });
+
   it("星级评价与奖励倍率联动", () => {
     const state = startBattle([makeAlly(), makeEnemy()], { nodeKey: "t", regionKey: "r", seed: 4 });
     state.turn = 3;
@@ -676,8 +713,8 @@ describe("AI 角色互动：Schema 校验与在场角色约束", () => {
 /* ============================ 配置与安全 ============================ */
 
 describe("策划配置与安全", () => {
-  it("15 名角色均为全年龄向且字段完整", () => {
-    expect(CHARACTER_SEEDS.length).toBe(15);
+  it("16 名角色均为全年龄向且字段完整", () => {
+    expect(CHARACTER_SEEDS.length).toBe(16);
     for (const char of CHARACTER_SEEDS) {
       expect(char.contentRating).toBe("all-ages");
       expect(char.name.length).toBeGreaterThan(0);
@@ -690,6 +727,13 @@ describe("策划配置与安全", () => {
       expect(Object.keys(char.quotes).length).toBeGreaterThan(0);
       for (const relation of char.relations) expect(relation.charKey.length).toBeGreaterThan(0);
     }
+  });
+
+  it("UR 塞拉菲娜已进入图鉴配置，但没有任何现行获取渠道", () => {
+    const seraphina = CHARACTER_SEEDS.find((char) => char.charKey === "seraphina_aurelian");
+    expect(seraphina).toMatchObject({ rarity: "UR", status: "published", inRecruitPool: false });
+    expect(seraphina?.skillKeys).toEqual(["sk_rift_sun_sweep", "sk_first_light_break", "sk_genius_swordsmanship"]);
+    for (const pool of POOL_SEEDS) expect(pool.characterKeys).not.toContain("seraphina_aurelian");
   });
 
   it("角色引用的技能与关系目标均存在", () => {

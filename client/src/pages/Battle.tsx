@@ -24,7 +24,7 @@ type UnitView = {
   side: "ally" | "enemy";
   job: string;
   element: string;
-  rarity: "R" | "SR" | "SSR";
+  rarity: "R" | "SR" | "SSR" | "UR";
   level: number;
   row: "front" | "back";
   hp: number;

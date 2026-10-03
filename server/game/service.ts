@@ -35,12 +35,15 @@ import {
   equipmentStats,
   MAX_LEVEL_BY_ASCENSION,
   powerRating,
+  RARITY_DUPLICATE_BOND,
+  RARITY_DUPLICATE_SHARDS,
   recoverStamina,
   resourceCap,
   round,
   statAtLevel,
   statsAtLevel,
   type ResourceBundle,
+  type RarityKey,
   type StatBlock,
 } from "./formulas";
 
@@ -525,17 +528,15 @@ export async function grantCharacter(profileId: number, charKey: string, via: st
     .where(and(eq(playerCharacters.profileId, profileId), eq(playerCharacters.charKey, charKey)))
     .limit(1);
 
-  const rarity = config.rarity as "R" | "SR" | "SSR";
-  const shardTable = { R: 6, SR: 20, SSR: 60 };
-  const bondTable = { R: 10, SR: 25, SSR: 50 };
+  const rarity = config.rarity as RarityKey;
 
   if (existing) {
-    const bond = applyBondExp(existing.bondLevel, existing.bondExp, round(bondTable[rarity] * shardMultiplier));
+    const bond = applyBondExp(existing.bondLevel, existing.bondExp, round(RARITY_DUPLICATE_BOND[rarity] * shardMultiplier));
     await db
       .update(playerCharacters)
       .set({ bondLevel: bond.level, bondExp: bond.exp, affection: clamp(existing.affection + 2, -100, 100) })
       .where(eq(playerCharacters.id, existing.id));
-    const shards = round(shardTable[rarity] * shardMultiplier);
+    const shards = round(RARITY_DUPLICATE_SHARDS[rarity] * shardMultiplier);
     await db
       .update(gameProfiles)
       .set({ recruitShards: sql`${gameProfiles.recruitShards} + ${shards}` })

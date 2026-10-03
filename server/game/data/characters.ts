@@ -27,6 +27,9 @@ export type CharacterSeed = {
   /** 原创立绘 / 头像（生成资产，路径见 assets.ts） */
   portraitUrl?: string | null;
   avatarUrl?: string | null;
+  /** 发布后可进入图鉴；获取渠道由 inRecruitPool 与活动/任务配置分别控制。 */
+  status?: "draft" | "published" | "archived";
+  inRecruitPool?: boolean;
 };
 
 /** 全年龄向内容自检：所有角色均为冒险者/骑士/法师/学者/工匠/商旅等正向身份，无成人向设定。 */
@@ -38,6 +41,38 @@ const c = (v: CharacterSeed): CharacterSeed => ({
 });
 
 export const CHARACTER_SEEDS: CharacterSeed[] = [
+  c({
+    charKey: "seraphina_aurelian",
+    name: "塞拉菲娜·奥雷利安",
+    title: "断晓的剑姬",
+    rarity: "UR",
+    job: "warrior",
+    race: "人类",
+    weapon: "双手大剑「断晓」",
+    element: "holy",
+    faction: "奥雷利安剑门",
+    intro: "她风尘仆仆来到灰隼堡，只为寻找失踪七年的家族族剑，以及那一夜被人从历史中抹去的真相。",
+    appearance: "十八岁的年轻女性，苍金色长发束成编发，蓝灰色眼睛。身穿旧象牙白、深蓝与古金相间的轻型板甲，披风和甲面留有长途跋涉的泥尘与磨痕，胸甲与剑格均带有奥雷利安家的太阳纹章。",
+    background: "奥雷利安家是传承数百年的大剑世家。七年前，家族在护送族剑「曜誓」北上时全员失踪，并被诬为携剑潜逃。塞拉菲娜凭旧商人账册中的线索独自来到灰隼堡，最终发现族剑被父亲作为封印裂隙的剑钉留在领地下方。她必须先与领主找到替代封印，才能取回族剑并洗清家名。",
+    personality: "聪明、专注、好胜，记招极快，对剑术以外的日常常识偶尔迟钝。她看重家名却不迷恋贵族身份，旅途中养成了不愿麻烦别人的习惯；拔剑后会变得异常冷静。",
+    goal: "找回族剑「曜誓」，查明族人失踪的真相，并让奥雷利安之名重新代表守护，而不是一桩未经审判的罪名。",
+    quotes: {
+      battle: ["看一次，就足够了。", "横斩——开路！", "再快一点，我还跟得上。", "这一剑，我刚刚想到的。"],
+      idle: ["断晓只是试炼剑。等找到曜誓，我会让你看看真正的晨锋式。", "这点风尘不算什么，我走过的路比账册上画的更长。", "你的旧档案室……能让我再查一遍吗？"],
+      bond: ["所有招式我都能很快学会。唯独怎么依靠别人，你得慢慢教我。"],
+    },
+    skillKeys: ["sk_rift_sun_sweep", "sk_first_light_break", "sk_genius_swordsmanship"],
+    baseStats: { hp: 1080, atk: 186, def: 88, mag: 40, res: 84, spd: 112, crit: 22, critDmg: 78, hit: 108, dodge: 16 },
+    growth: { curve: 1.36, growth: 1.28 },
+    relations: [
+      { charKey: "adrian", relation: "切磋战友", note: "艾德里安从她的起手式认出了奥雷利安剑术，也知道一些旧战场往事。" },
+      { charKey: "greta", relation: "严厉考官", note: "格蕾塔不相信天才之名，只相信她在领民遇险时会站在哪里。" },
+      { charKey: "viola", relation: "封印研究者", note: "薇奥拉协助解析族剑与地下裂隙的共鸣。" },
+    ],
+    sortOrder: 0,
+    status: "published",
+    inRecruitPool: false,
+  }),
   c({
     charKey: "adrian",
     name: "艾德里安·瓦尔登",
